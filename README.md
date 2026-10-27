@@ -48,13 +48,13 @@ go build ./cmd/location-store ./cmd/location-import-google ./cmd/location-import
 ## Run
 
 ```sh
-./location-store            # listens on 127.0.0.1:8332
-curl -s localhost:8332/health
+./location-store            # listens on 127.0.0.1:8333
+curl -s localhost:8333/health
 ```
 
 | Variable | Default | |
 |---|---|---|
-| `LOCATION_STORE_ADDR` | `127.0.0.1:8332` | listen address |
+| `LOCATION_STORE_ADDR` | `127.0.0.1:8333` | listen address |
 | `LOCATION_STORE_DATA_DIR` | `~/.config/location-store` | the database |
 
 `GET /settings` describes every setting and the value in force.
@@ -76,7 +76,7 @@ location-import-google -file "Takeout/Location History"  # Records.json and ever
 location-import-photos                                   # photo GPS from photo-store
 ```
 
-Both commands post to `LOCATION_STORE_URL` (default `http://127.0.0.1:8332`);
+Both commands post to `LOCATION_STORE_URL` (default `http://127.0.0.1:8333`);
 `location-import-photos` reads `PHOTO_STORE_URL` (default
 `http://127.0.0.1:8329`).
 

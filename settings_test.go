@@ -19,8 +19,8 @@ func TestTheRegistryReadsDefaultsAndRefusesAnUndeclaredVariable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := registry.String(SettingListenAddress); got != "127.0.0.1:8332" {
-		t.Errorf("listen address = %q, want loopback 127.0.0.1:8332", got)
+	if got := registry.String(SettingListenAddress); got != "127.0.0.1:8333" {
+		t.Errorf("listen address = %q, want loopback 127.0.0.1:8333", got)
 	}
 	if got := registry.String(SettingDataDirectory); got != DefaultDataDir() {
 		t.Errorf("data directory = %q, want %q", got, DefaultDataDir())

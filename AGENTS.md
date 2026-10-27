@@ -2,7 +2,7 @@
 
 ## What it owns
 
-`:8332`, loopback only. Where the user has been: named places (`place_000001`), visits to them (`visit_000001`), trips between them (`trip_000001`), the raw location points underneath (millions possible, no public ids, read by time) and the imports that brought them in (`import_000001`). Place, visit and trip ids are registered in kanban-store's entity-type registry as types `place`, `visit` and `trip`, so a journal-store timeline item or a note cites a particular drive or trip as a chip. **Location history is private**: a front door such as dash adds the auth this service has none of, and nothing here is copied to noteboard. `CONTRACT.md` is the route table.
+`:8333`, loopback only. Where the user has been: named places (`place_000001`), visits to them (`visit_000001`), trips between them (`trip_000001`), the raw location points underneath (millions possible, no public ids, read by time) and the imports that brought them in (`import_000001`). Place, visit and trip ids are registered in kanban-store's entity-type registry as types `place`, `visit` and `trip`, so a journal-store timeline item or a note cites a particular drive or trip as a chip. **Location history is private**: a front door such as dash adds the auth this service has none of, and nothing here is copied to noteboard. `CONTRACT.md` is the route table.
 
 # How it works
 

@@ -1,6 +1,6 @@
 # location-store — API contract
 
-`127.0.0.1:8332`, loopback only, no auth: a front door such as dash adds it.
+`127.0.0.1:8333`, loopback only, no auth: a front door such as dash adds it.
 Where the user has been: named places, visits to them, trips between them, the
 raw location points underneath, and the imports that brought them in. SQLite
 at `<data dir>/location-store.db` (default `~/.config/location-store`,
@@ -10,9 +10,9 @@ directory 0700, file 0600). Timestamps are epoch seconds.
 
 | Variable | Default | What it is |
 |---|---|---|
-| `LOCATION_STORE_ADDR` | `127.0.0.1:8332` | listen address |
+| `LOCATION_STORE_ADDR` | `127.0.0.1:8333` | listen address |
 | `LOCATION_STORE_DATA_DIR` | `~/.config/location-store` | holds `location-store.db` |
-| `LOCATION_STORE_URL` | `http://127.0.0.1:8332` | the import commands: where to post |
+| `LOCATION_STORE_URL` | `http://127.0.0.1:8333` | the import commands: where to post |
 | `PHOTO_STORE_URL` | `http://127.0.0.1:8329` | `location-import-photos`: where photo-store answers |
 
 ## Records

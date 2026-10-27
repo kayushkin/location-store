@@ -26,7 +26,7 @@ const (
 
 // DefaultListenAddress is loopback, deliberately: this is where the user has
 // been, and the service has no auth of its own. dash is the front door.
-const DefaultListenAddress = "127.0.0.1:8332"
+const DefaultListenAddress = "127.0.0.1:8333"
 
 // DefaultDataDir is where the database lives when the environment says
 // nothing.
@@ -67,7 +67,7 @@ const (
 )
 
 func locationStoreURLDefinition() servicesettings.Definition {
-	return servicesettings.Definition{Key: SettingLocationStoreURL, EnvironmentVariable: "LOCATION_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: "http://127.0.0.1:8332",
+	return servicesettings.Definition{Key: SettingLocationStoreURL, EnvironmentVariable: "LOCATION_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: "http://127.0.0.1:8333",
 		Description: "Where location-store answers: the import is posted there."}
 }
 

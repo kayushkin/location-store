@@ -1,5 +1,5 @@
 // Command location-store serves where the user has been, on
-// 127.0.0.1:8332.
+// 127.0.0.1:8333.
 package main
 
 import (
