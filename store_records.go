@@ -58,19 +58,22 @@ func describedByRequired(description, describedBy string) error {
 // ---- places ----
 
 const placeColumns = `id, name, latitude, longitude, radius_meters, address, kind, google_place_id, description,
-	described_by, tags, source, import_id, created_at, updated_at, deleted_at`
+	described_by, tags, source, import_id, locality, created_at, updated_at, deleted_at`
 
 func scanPlace(scan func(...any) error) (*Place, error) {
 	var place Place
-	var googlePlaceID, importID sql.NullString
+	var googlePlaceID, importID, locality sql.NullString
 	var tags string
 	if err := scan(&place.ID, &place.Name, &place.Latitude, &place.Longitude, &place.RadiusMeters, &place.Address, &place.Kind,
-		&googlePlaceID, &place.Description, &place.DescribedBy, &tags, &place.Source, &importID,
+		&googlePlaceID, &place.Description, &place.DescribedBy, &tags, &place.Source, &importID, &locality,
 		&place.CreatedAt, &place.UpdatedAt, &place.DeletedAt); err != nil {
 		return nil, err
 	}
 	place.GooglePlaceID, place.ImportID = stringPointer(googlePlaceID), stringPointer(importID)
 	var err error
+	if place.Locality, err = decodeLocality(locality, "place "+place.ID); err != nil {
+		return nil, err
+	}
 	if place.Tags, err = decodeStrings(tags, "place "+place.ID); err != nil {
 		return nil, err
 	}
@@ -263,22 +266,25 @@ func (s *Store) PatchPlace(id string, patch PlacePatch) (*Place, error) {
 
 const visitSelect = `SELECT v.id, v.place_id, COALESCE(p.name, ''), v.started_at, v.ended_at, v.latitude, v.longitude,
 	v.probability, v.source_semantic_type, v.description, v.described_by, v.tags, v.source, v.source_ref, v.import_id,
-	v.created_at, v.updated_at, v.deleted_at FROM visits v LEFT JOIN places p ON p.id = v.place_id`
+	v.superseded_by_import_id, v.locality, v.created_at, v.updated_at, v.deleted_at FROM visits v LEFT JOIN places p ON p.id = v.place_id`
 
 func scanVisit(scan func(...any) error) (*Visit, error) {
 	var visit Visit
-	var placeID, importID sql.NullString
+	var placeID, importID, supersededBy, locality sql.NullString
 	var latitude, longitude, probability sql.NullFloat64
 	var tags string
 	if err := scan(&visit.ID, &placeID, &visit.PlaceName, &visit.StartedAt, &visit.EndedAt, &latitude, &longitude,
 		&probability, &visit.SourceSemanticType, &visit.Description, &visit.DescribedBy, &tags, &visit.Source,
-		&visit.SourceRef, &importID, &visit.CreatedAt, &visit.UpdatedAt, &visit.DeletedAt); err != nil {
+		&visit.SourceRef, &importID, &supersededBy, &locality, &visit.CreatedAt, &visit.UpdatedAt, &visit.DeletedAt); err != nil {
 		return nil, err
 	}
-	visit.PlaceID, visit.ImportID = stringPointer(placeID), stringPointer(importID)
+	visit.PlaceID, visit.ImportID, visit.SupersededByImportID = stringPointer(placeID), stringPointer(importID), stringPointer(supersededBy)
 	visit.Latitude, visit.Longitude, visit.Probability = floatPointer(latitude), floatPointer(longitude), floatPointer(probability)
 	var err error
 	if visit.Tags, err = decodeStrings(tags, "visit "+visit.ID); err != nil {
+		return nil, err
+	}
+	if visit.Locality, err = decodeLocality(locality, "visit "+visit.ID); err != nil {
 		return nil, err
 	}
 	return &visit, nil
@@ -469,10 +475,10 @@ func (s *Store) PatchVisit(id string, patch VisitPatch) (*Visit, error) {
 
 // ---- trips ----
 
-const tripSelect = `SELECT t.id, t.parent_trip_id, t.started_at, t.ended_at, t.start_latitude, t.start_longitude,
+const tripSelect = `SELECT t.id, t.kind, t.parent_trip_id, t.parent_set_by, t.started_at, t.ended_at, t.start_latitude, t.start_longitude,
 	t.end_latitude, t.end_longitude, t.start_place_id, COALESCE(sp.name, ''), t.end_place_id, COALESCE(ep.name, ''),
-	t.mode, t.source_mode, t.distance_meters, t.probability, t.title, t.description, t.described_by, t.tags, t.source,
-	t.source_ref, t.import_id,
+	t.mode, t.source_mode, t.distance_meters, t.probability, t.title, t.title_by, t.description, t.described_by, t.tags,
+	t.source, t.source_ref, t.import_id, t.superseded_by_import_id, t.start_locality, t.end_locality,
 	(SELECT COUNT(*) FROM trip_path_points pp WHERE pp.trip_id = t.id),
 	(SELECT COUNT(*) FROM trips c WHERE c.parent_trip_id = t.id AND c.deleted_at = 0),
 	t.created_at, t.updated_at, t.deleted_at
@@ -480,23 +486,29 @@ const tripSelect = `SELECT t.id, t.parent_trip_id, t.started_at, t.ended_at, t.s
 
 func scanTrip(scan func(...any) error) (*Trip, error) {
 	var trip Trip
-	var parentTripID, startPlaceID, endPlaceID, importID sql.NullString
+	var parentTripID, startPlaceID, endPlaceID, importID, supersededBy, startLocality, endLocality sql.NullString
 	var startLatitude, startLongitude, endLatitude, endLongitude, distance, probability sql.NullFloat64
 	var tags string
-	if err := scan(&trip.ID, &parentTripID, &trip.StartedAt, &trip.EndedAt, &startLatitude, &startLongitude,
+	if err := scan(&trip.ID, &trip.Kind, &parentTripID, &trip.ParentSetBy, &trip.StartedAt, &trip.EndedAt, &startLatitude, &startLongitude,
 		&endLatitude, &endLongitude, &startPlaceID, &trip.StartPlaceName, &endPlaceID, &trip.EndPlaceName,
-		&trip.Mode, &trip.SourceMode, &distance, &probability, &trip.Title, &trip.Description, &trip.DescribedBy, &tags,
-		&trip.Source, &trip.SourceRef, &importID, &trip.PathPoints, &trip.ChildTrips,
+		&trip.Mode, &trip.SourceMode, &distance, &probability, &trip.Title, &trip.TitleBy, &trip.Description, &trip.DescribedBy, &tags,
+		&trip.Source, &trip.SourceRef, &importID, &supersededBy, &startLocality, &endLocality, &trip.PathPoints, &trip.ChildTrips,
 		&trip.CreatedAt, &trip.UpdatedAt, &trip.DeletedAt); err != nil {
 		return nil, err
 	}
 	trip.ParentTripID, trip.StartPlaceID, trip.EndPlaceID = stringPointer(parentTripID), stringPointer(startPlaceID), stringPointer(endPlaceID)
-	trip.ImportID = stringPointer(importID)
+	trip.ImportID, trip.SupersededByImportID = stringPointer(importID), stringPointer(supersededBy)
 	trip.StartLatitude, trip.StartLongitude = floatPointer(startLatitude), floatPointer(startLongitude)
 	trip.EndLatitude, trip.EndLongitude = floatPointer(endLatitude), floatPointer(endLongitude)
 	trip.DistanceMeters, trip.Probability = floatPointer(distance), floatPointer(probability)
 	var err error
 	if trip.Tags, err = decodeStrings(tags, "trip "+trip.ID); err != nil {
+		return nil, err
+	}
+	if trip.StartLocality, err = decodeLocality(startLocality, "trip "+trip.ID+" start"); err != nil {
+		return nil, err
+	}
+	if trip.EndLocality, err = decodeLocality(endLocality, "trip "+trip.ID+" end"); err != nil {
 		return nil, err
 	}
 	return &trip, nil
@@ -563,6 +575,13 @@ func (s *Store) CreateTrip(create TripCreate) (*Trip, error) {
 	if !knownWord(TripModes, create.Mode) {
 		return nil, fmt.Errorf("%w: unknown mode %q: use one of %s", ErrInvalid, create.Mode, strings.Join(TripModes, ", "))
 	}
+	kind := create.Kind
+	if kind == "" {
+		kind = TripKindJourney
+	}
+	if !knownWord(TripKinds, kind) {
+		return nil, fmt.Errorf("%w: unknown kind %q: use one of %s", ErrInvalid, kind, strings.Join(TripKinds, ", "))
+	}
 	if create.DistanceMeters != nil && *create.DistanceMeters < 0 {
 		return nil, fmt.Errorf("%w: distance_meters cannot be negative", ErrInvalid)
 	}
@@ -595,10 +614,14 @@ func (s *Store) CreateTrip(create TripCreate) (*Trip, error) {
 			return err
 		}
 		at := now()
-		_, err = tx.Exec(`INSERT INTO trips (id, seq, parent_trip_id, started_at, ended_at, start_latitude, start_longitude,
+		parentSetBy := ""
+		if create.ParentTripID != nil {
+			parentSetBy = SetByHand
+		}
+		_, err = tx.Exec(`INSERT INTO trips (id, seq, kind, parent_trip_id, parent_set_by, title_by, started_at, ended_at, start_latitude, start_longitude,
 			end_latitude, end_longitude, start_place_id, end_place_id, mode, distance_meters, title, description,
-			described_by, tags, source, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			id, seq, nullableString(create.ParentTripID), create.StartedAt, create.EndedAt,
+			described_by, tags, source, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, seq, kind, nullableString(create.ParentTripID), parentSetBy, SetByHand, create.StartedAt, create.EndedAt,
 			nullableFloat(create.StartLatitude), nullableFloat(create.StartLongitude), nullableFloat(create.EndLatitude),
 			nullableFloat(create.EndLongitude), nullableString(create.StartPlaceID), nullableString(create.EndPlaceID),
 			create.Mode, nullableFloat(create.DistanceMeters), title, description, describedBy, encodeStrings(tags),
@@ -615,6 +638,7 @@ func (s *Store) CreateTrip(create TripCreate) (*Trip, error) {
 type TripFilter struct {
 	TimeFilter
 	Mode string
+	Kind string
 	// ParentTripID lists the children of one trip; "none" lists only trips
 	// that are part of no other.
 	ParentTripID          string
@@ -632,6 +656,12 @@ func (s *Store) ListTrips(filter TripFilter) ([]Trip, error) {
 			return nil, fmt.Errorf("%w: unknown mode %q: use one of %s", ErrInvalid, filter.Mode, strings.Join(TripModes, ", "))
 		}
 		where, args = append(where, "t.mode = ?"), append(args, filter.Mode)
+	}
+	if filter.Kind != "" {
+		if !knownWord(TripKinds, filter.Kind) {
+			return nil, fmt.Errorf("%w: unknown kind %q: use one of %s", ErrInvalid, filter.Kind, strings.Join(TripKinds, ", "))
+		}
+		where, args = append(where, "t.kind = ?"), append(args, filter.Kind)
 	}
 	switch filter.ParentTripID {
 	case "":
@@ -687,6 +717,7 @@ func (s *Store) PatchTrip(id string, patch TripPatch) (*Trip, error) {
 				return err
 			}
 			trip.ParentTripID = patch.ParentTripID.Value
+			trip.ParentSetBy = SetByHand
 		}
 		if patch.StartPlaceID.Set {
 			if err := requirePlace(tx, patch.StartPlaceID.Value, "start_place_id"); err != nil {
@@ -708,6 +739,7 @@ func (s *Store) PatchTrip(id string, patch TripPatch) (*Trip, error) {
 		}
 		if patch.Title != nil {
 			trip.Title = strings.TrimSpace(*patch.Title)
+			trip.TitleBy = SetByHand
 		}
 		if patch.Description != nil {
 			trip.Description = strings.TrimSpace(*patch.Description)
@@ -723,9 +755,10 @@ func (s *Store) PatchTrip(id string, patch TripPatch) (*Trip, error) {
 		if err := describedByRequired(trip.Description, trip.DescribedBy); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`UPDATE trips SET parent_trip_id=?, start_place_id=?, end_place_id=?, mode=?, title=?, description=?,
-			described_by=?, tags=?, updated_at=? WHERE id=?`, nullableString(trip.ParentTripID), nullableString(trip.StartPlaceID),
-			nullableString(trip.EndPlaceID), trip.Mode, trip.Title, trip.Description, trip.DescribedBy, encodeStrings(trip.Tags), at, id)
+		_, err = tx.Exec(`UPDATE trips SET parent_trip_id=?, parent_set_by=?, start_place_id=?, end_place_id=?, mode=?, title=?,
+			title_by=?, description=?, described_by=?, tags=?, updated_at=? WHERE id=?`, nullableString(trip.ParentTripID),
+			trip.ParentSetBy, nullableString(trip.StartPlaceID), nullableString(trip.EndPlaceID), trip.Mode, trip.Title, trip.TitleBy,
+			trip.Description, trip.DescribedBy, encodeStrings(trip.Tags), at, id)
 		return err
 	})
 	if err != nil {
@@ -735,7 +768,8 @@ func (s *Store) PatchTrip(id string, patch TripPatch) (*Trip, error) {
 }
 
 // AttachChildren makes each named trip part of parentID, in one transaction:
-// one bad id attaches none.
+// one bad id attaches none. The routes call it; a trip attached so is placed
+// by hand, and location-group-journeys leaves it there.
 func (s *Store) AttachChildren(parentID string, childIDs []string) (*Trip, error) {
 	if len(childIDs) == 0 {
 		return nil, fmt.Errorf("%w: trip_ids is empty", ErrInvalid)
@@ -750,7 +784,7 @@ func (s *Store) AttachChildren(parentID string, childIDs []string) (*Trip, error
 			if child.DeletedAt != 0 {
 				return fmt.Errorf("%w: trip %s is deleted", ErrInvalid, childID)
 			}
-			if child.ParentTripID != nil && *child.ParentTripID == parentID {
+			if child.ParentTripID != nil && *child.ParentTripID == parentID && child.ParentSetBy == SetByHand {
 				continue
 			}
 			if err := checkParent(tx, childID, &parentID); err != nil {
@@ -759,7 +793,7 @@ func (s *Store) AttachChildren(parentID string, childIDs []string) (*Trip, error
 			if err := snapshot(tx, EntityTrip, childID, "attach", at); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`UPDATE trips SET parent_trip_id=?, updated_at=? WHERE id=?`, parentID, at, childID); err != nil {
+			if _, err := tx.Exec(`UPDATE trips SET parent_trip_id=?, parent_set_by=?, updated_at=? WHERE id=?`, parentID, SetByHand, at, childID); err != nil {
 				return err
 			}
 		}
@@ -836,7 +870,13 @@ func (s *Store) Restore(entityType, id string) error {
 		if err := snapshot(tx, entityType, id, "restore", at); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`UPDATE `+entityTables[entityType]+` SET deleted_at=0, updated_at=? WHERE id=?`, at, id)
+		if entityType == EntityPlace {
+			_, err = tx.Exec(`UPDATE places SET deleted_at=0, updated_at=? WHERE id=?`, at, id)
+			return err
+		}
+		// Brought back by hand, a record a newer export set aside stays: the
+		// "restore" revision marks it as someone's choice.
+		_, err = tx.Exec(`UPDATE `+entityTables[entityType]+` SET deleted_at=0, superseded_by_import_id=NULL, updated_at=? WHERE id=?`, at, id)
 		return err
 	})
 }

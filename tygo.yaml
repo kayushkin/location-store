@@ -12,3 +12,6 @@ packages:
       - "server.go"
       - "settings.go"
       - "schema_embed.go"
+      - "journeys.go"
+      - "localities.go"
+      - "snapshots.go"

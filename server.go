@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sort"
@@ -42,6 +43,13 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 		mux.HandleFunc("GET /"+collection+"/{id}/revisions", h.revisions(entityType))
 	}
 
+	mux.HandleFunc("POST /localities/fill", h.fillLocalities)
+	mux.HandleFunc("GET /home-periods", h.listHomePeriods)
+	mux.HandleFunc("GET /home-periods/{id}", h.getHomePeriod)
+	mux.HandleFunc("POST /journeys/group", h.groupJourneys)
+	mux.HandleFunc("GET /journeys", h.listJourneys)
+	mux.HandleFunc("GET /journeys/{id}", h.getJourney)
+
 	mux.HandleFunc("GET /timeline", h.timeline)
 	mux.HandleFunc("GET /points", h.listPoints)
 
@@ -65,7 +73,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) vocabularies(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, Vocabularies{PlaceKinds: PlaceKinds, TripModes: TripModes, RecordSources: RecordSources,
+	writeJSON(w, http.StatusOK, Vocabularies{PlaceKinds: PlaceKinds, TripKinds: TripKinds, TripModes: TripModes, RecordSources: RecordSources,
 		PointSources: PointSources, ImportKinds: ImportKinds})
 }
 
@@ -291,7 +299,7 @@ func (h *handler) patchVisit(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) listTrips(w http.ResponseWriter, r *http.Request) {
 	q := &queryReader{w: w, r: r}
-	filter := TripFilter{TimeFilter: q.timeFilter(), Mode: q.text("mode"), ParentTripID: q.text("parent_trip_id"),
+	filter := TripFilter{TimeFilter: q.timeFilter(), Mode: q.text("mode"), Kind: q.text("kind"), ParentTripID: q.text("parent_trip_id"),
 		MinimumDistanceMeters: q.number("min_distance_meters"), ExcludeParents: q.boolean("exclude_parents")}
 	if q.failed {
 		return
@@ -364,6 +372,74 @@ func (h *handler) attachChildren(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, trip)
+}
+
+// ---- localities, home periods and journeys ----
+
+func (h *handler) fillLocalities(w http.ResponseWriter, r *http.Request) {
+	var request LocalityFillRequest
+	if !decodeBody(w, r, 1<<20, &request) {
+		return
+	}
+	fill, err := h.s.FillLocalities(request.DryRun)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, fill)
+}
+
+func (h *handler) listHomePeriods(w http.ResponseWriter, r *http.Request) {
+	q := &queryReader{w: w, r: r}
+	includeDeleted := q.boolean("include_deleted")
+	if q.failed {
+		return
+	}
+	periods, err := h.s.ListHomePeriods(includeDeleted)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, periods)
+}
+
+func (h *handler) getHomePeriod(w http.ResponseWriter, r *http.Request) {
+	period, err := h.s.GetHomePeriod(r.PathValue("id"))
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, period)
+}
+
+func (h *handler) groupJourneys(w http.ResponseWriter, r *http.Request) {
+	var request JourneyGroupRequest
+	if !decodeBody(w, r, 1<<20, &request) {
+		return
+	}
+	grouping, err := h.s.GroupJourneys(request)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, grouping)
+}
+
+func (h *handler) listJourneys(w http.ResponseWriter, r *http.Request) {
+	q := &queryReader{w: w, r: r}
+	filter := TripFilter{TimeFilter: q.timeFilter(), Kind: TripKindJourney}
+	if q.failed {
+		return
+	}
+	trips, err := h.s.ListTrips(filter)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, trips)
+}
+
+func (h *handler) getJourney(w http.ResponseWriter, r *http.Request) {
+	summary, err := h.s.Journey(r.PathValue("id"))
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 // ---- shared ----
@@ -491,7 +567,14 @@ func (h *handler) importBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) finishImport(w http.ResponseWriter, r *http.Request) {
-	record, err := h.s.FinishImport(r.PathValue("id"))
+	var finish ImportFinish
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&finish); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "bad json: "+err.Error())
+		return
+	}
+	record, err := h.s.FinishImport(r.PathValue("id"), finish)
 	if respondError(w, err) {
 		return
 	}

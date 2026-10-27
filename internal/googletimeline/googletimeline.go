@@ -39,6 +39,13 @@ type Sink interface {
 	Point(locationstore.ImportPoint) error
 }
 
+// SnapshotSink is a Sink told, once the whole file is read, the span an
+// on-device Timeline export covers and how new it is. Such an export holds
+// every segment of its span, so it is a full snapshot of it.
+type SnapshotSink interface {
+	Snapshot(locationstore.ImportSnapshot) error
+}
+
 // ErrNotLocationHistory is a JSON file none of whose top-level keys is one of
 // the three formats'.
 var ErrNotLocationHistory = errors.New("not a Google location history file: no semanticSegments, rawSignals, userLocationProfile, locations or timelineObjects")
@@ -82,6 +89,11 @@ func Parse(reader io.Reader, sink Sink) (Report, error) {
 	if parser.kind == "" {
 		return report, ErrNotLocationHistory
 	}
+	if snapshotSink, wants := sink.(SnapshotSink); wants && parser.kind == locationstore.ImportKindGoogleTimeline && parser.snapshot.CoversFrom != 0 {
+		if err := snapshotSink.Snapshot(parser.snapshot); err != nil {
+			return report, err
+		}
+	}
 	return report, nil
 }
 
@@ -89,6 +101,8 @@ type parser struct {
 	sink   Sink
 	report Report
 	kind   string
+	// snapshot is what an on-device export covers, gathered as it is read.
+	snapshot locationstore.ImportSnapshot
 }
 
 // begin sets the file's kind the first time a known key is met.
@@ -337,6 +351,14 @@ func (p *parser) deviceSegments(segments []deviceSegment) error {
 		}
 	}
 	for _, segment := range segments {
+		if startedAt, ok := parseTime(segment.StartTime); ok && (p.snapshot.CoversFrom == 0 || startedAt < p.snapshot.CoversFrom) {
+			p.snapshot.CoversFrom = startedAt
+		}
+		if endedAt, ok := parseTime(segment.EndTime); ok && endedAt > p.snapshot.CoversTo {
+			p.snapshot.CoversTo = endedAt
+		}
+	}
+	for _, segment := range segments {
 		switch {
 		case segment.Visit != nil:
 			if err := p.deviceVisit(segment); err != nil {
@@ -435,6 +457,10 @@ func (p *parser) deviceRawSignal(signal deviceRawSignal) error {
 		p.report["positions with no readable time or place"]++
 		return nil
 	}
+	if p.snapshot.RawSignalsOldestAt == 0 || timestamp < p.snapshot.RawSignalsOldestAt {
+		p.snapshot.RawSignalsOldestAt = timestamp
+	}
+	p.snapshot.RawSignalsNewestAt = max(p.snapshot.RawSignalsNewestAt, timestamp)
 	accuracy := signal.Position.AccuracyMeters
 	if accuracy != nil && *accuracy < 0 {
 		accuracy = nil

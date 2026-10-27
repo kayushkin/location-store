@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kayushkin/location-store/internal/geonames"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -34,6 +35,10 @@ type Store struct {
 	// writeMutex serializes every write; the next id is MAX(seq)+1 read inside
 	// the write's transaction.
 	writeMutex sync.Mutex
+	// towns is the GeoNames index, read from <data dir>/geonames the first
+	// time something needs a town named.
+	townsMutex sync.Mutex
+	towns      *geonames.Index
 }
 
 // Open creates the data directory (0700) if needed, opens the database and
@@ -61,11 +66,66 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := addColumns(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	if err := os.Chmod(dbPath, 0o600); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &Store{db: db, dataDir: dataDir}, nil
+}
+
+// addedColumns are the columns added after a table was first made, in order.
+// Each runs once, when the table lacks it; then statements follow it, once.
+var addedColumns = []struct {
+	table, column, definition string
+	then                      []string
+}{
+	{"places", "locality", "TEXT", nil},
+	{"visits", "locality", "TEXT", nil},
+	{"trips", "start_locality", "TEXT", nil},
+	{"trips", "end_locality", "TEXT", nil},
+	{"trips", "kind", "TEXT NOT NULL DEFAULT 'movement'", []string{
+		// Every trip made by hand before trips had a kind was a road trip or
+		// holiday to attach drives to.
+		`UPDATE trips SET kind = 'journey' WHERE source = 'manual'`,
+		`CREATE INDEX IF NOT EXISTS idx_trips_kind ON trips(kind, deleted_at, started_at)`,
+	}},
+	{"trips", "title_by", "TEXT NOT NULL DEFAULT ''", []string{`UPDATE trips SET title_by = 'hand' WHERE title != ''`}},
+	{"visits", "superseded_by_import_id", "TEXT REFERENCES imports(id)", nil},
+	{"trips", "superseded_by_import_id", "TEXT REFERENCES imports(id)", nil},
+	{"imports", "snapshot", "TEXT", nil},
+	{"imports", "snapshot_changes", "TEXT", nil},
+	{"trips", "parent_set_by", "TEXT NOT NULL DEFAULT ''", []string{`UPDATE trips SET parent_set_by = 'hand' WHERE parent_trip_id IS NOT NULL`}},
+}
+
+func addColumns(db *sql.DB) error {
+	for _, added := range addedColumns {
+		var present int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, added.table, added.column).Scan(&present); err != nil {
+			return err
+		}
+		if present > 0 {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		statements := append([]string{`ALTER TABLE ` + added.table + ` ADD COLUMN ` + added.column + ` ` + added.definition}, added.then...)
+		for _, statement := range statements {
+			if _, err := tx.Exec(statement); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("%s.%s: %w", added.table, added.column, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close releases the database handle.
@@ -311,4 +371,26 @@ func (s *Store) Counts() (Counts, error) {
 // likePattern turns a word into a LIKE pattern that matches it anywhere.
 func likePattern(word string) string {
 	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(word) + "%"
+}
+
+func encodeLocality(locality *Locality) any {
+	if locality == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(locality)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
+func decodeLocality(encoded sql.NullString, what string) (*Locality, error) {
+	if !encoded.Valid {
+		return nil, nil
+	}
+	var locality Locality
+	if err := json.Unmarshal([]byte(encoded.String), &locality); err != nil {
+		return nil, fmt.Errorf("%s has a locality that is not JSON: %w", what, err)
+	}
+	return &locality, nil
 }

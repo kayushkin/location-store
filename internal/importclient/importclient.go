@@ -33,6 +33,11 @@ type Client struct {
 	SourceMachine string
 	SourcePath    string
 	DryRun        bool
+	// Reapply sends a file the store finished before once more, so the store
+	// learns which records the file holds.
+	Reapply bool
+	// snapshot, when the file is a full snapshot of a span, goes with Finish.
+	snapshot *locationstore.ImportSnapshot
 
 	http     *http.Client
 	importID string
@@ -99,7 +104,7 @@ func (c *Client) Begin(kind string) error {
 	}
 	var started locationstore.ImportStarted
 	if err := c.post("/imports", locationstore.ImportStart{Kind: kind, Sha256: c.Sha256, SourceMachine: c.SourceMachine,
-		SourcePath: c.SourcePath}, &started); err != nil {
+		SourcePath: c.SourcePath, Reapply: c.Reapply}, &started); err != nil {
 		return err
 	}
 	c.importID = started.Import.ID
@@ -150,6 +155,15 @@ func (c *Client) Point(point locationstore.ImportPoint) error {
 	return c.added()
 }
 
+// Snapshot keeps the span a full-snapshot export covers, for Finish.
+func (c *Client) Snapshot(snapshot locationstore.ImportSnapshot) error {
+	c.snapshot = &snapshot
+	return nil
+}
+
+// SnapshotRead is what Snapshot kept; nil for a file that is not a snapshot.
+func (c *Client) SnapshotRead() *locationstore.ImportSnapshot { return c.snapshot }
+
 // Flush posts what is queued.
 func (c *Client) Flush() error {
 	if c.pending == 0 {
@@ -188,7 +202,7 @@ func (c *Client) Finish() (*locationstore.Import, error) {
 		return nil, nil
 	}
 	var record locationstore.Import
-	if err := c.post("/imports/"+c.importID+"/finish", struct{}{}, &record); err != nil {
+	if err := c.post("/imports/"+c.importID+"/finish", locationstore.ImportFinish{Snapshot: c.snapshot}, &record); err != nil {
 		return nil, err
 	}
 	return &record, nil

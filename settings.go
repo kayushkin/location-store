@@ -68,7 +68,7 @@ const (
 
 func locationStoreURLDefinition() servicesettings.Definition {
 	return servicesettings.Definition{Key: SettingLocationStoreURL, EnvironmentVariable: "LOCATION_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: "http://127.0.0.1:8333",
-		Description: "Where location-store answers: the import is posted there."}
+		Description: "Where location-store answers: the command posts there."}
 }
 
 // ImportGoogleSettingDefinitions declares every environment variable
@@ -96,4 +96,26 @@ func ImportPhotosSettingDefinitions() []servicesettings.Definition {
 // NewImportPhotosSettingsRegistry reads location-import-photos' settings.
 func NewImportPhotosSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New("location-import-photos", nil, ImportPhotosSettingDefinitions(), environment)
+}
+
+// LocalityNamingSettingDefinitions declares every environment variable
+// location-name-localities reads.
+func LocalityNamingSettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{locationStoreURLDefinition()}
+}
+
+// NewLocalityNamingSettingsRegistry reads location-name-localities' settings.
+func NewLocalityNamingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New("location-name-localities", nil, LocalityNamingSettingDefinitions(), environment)
+}
+
+// JourneyGroupingSettingDefinitions declares every environment variable
+// location-group-journeys reads.
+func JourneyGroupingSettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{locationStoreURLDefinition()}
+}
+
+// NewJourneyGroupingSettingsRegistry reads location-group-journeys' settings.
+func NewJourneyGroupingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New("location-group-journeys", nil, JourneyGroupingSettingDefinitions(), environment)
 }

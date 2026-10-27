@@ -53,8 +53,34 @@ const (
 	SourceManual = "manual"
 )
 
+// SourceGenerated is made by one of this repo's commands from other records:
+// a journey grouped by location-group-journeys.
+const SourceGenerated = "generated"
+
 // RecordSources is every source a place, visit or trip can have.
-var RecordSources = []string{SourceGoogleTimeline, SourceGoogleSemantic, SourceManual}
+var RecordSources = []string{SourceGoogleTimeline, SourceGoogleSemantic, SourceManual, SourceGenerated}
+
+// What a trip is.
+const (
+	// TripKindMovement is one movement a source recorded: a drive, a flight.
+	TripKindMovement = "movement"
+	// TripKindJourney is a span away from home made of movements: a road trip
+	// or a holiday. Made by hand, or by location-group-journeys.
+	TripKindJourney = "journey"
+)
+
+// TripKinds is every kind a trip can have.
+var TripKinds = []string{TripKindMovement, TripKindJourney}
+
+// Who set a field the routes and the commands both write.
+const (
+	// SetByHand is a person or an agent, through the routes.
+	SetByHand = "hand"
+	// SetByJourneyGrouping is location-group-journeys.
+	SetByJourneyGrouping = "location-group-journeys"
+	// SetByLocalityNaming is location-name-localities.
+	SetByLocalityNaming = "location-name-localities"
+)
 
 // Where a raw point came from.
 const (
@@ -83,6 +109,7 @@ var ImportKinds = []string{ImportKindGoogleTimeline, ImportKindGoogleRecords, Im
 // Vocabularies is the answer to GET /vocabularies.
 type Vocabularies struct {
 	PlaceKinds    []string `json:"place_kinds"`
+	TripKinds     []string `json:"trip_kinds"`
 	TripModes     []string `json:"trip_modes"`
 	RecordSources []string `json:"record_sources"`
 	PointSources  []string `json:"point_sources"`

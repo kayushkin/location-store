@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	locationstore "github.com/kayushkin/location-store"
@@ -30,6 +31,7 @@ func main() {
 	path := flag.String("file", "", "a Google export file, or a directory of them (required)")
 	sourceMachine := flag.String("source-machine", "", "the machine the file was read on, recorded on the import (default: this host's name)")
 	dryRun := flag.Bool("dry-run", false, "read and count, post nothing")
+	reapply := flag.Bool("reapply", false, "send a file imported before once more, so the store records which visits and trips it holds and reconciles the snapshots")
 	flag.Parse()
 	if *path == "" {
 		flag.Usage()
@@ -55,7 +57,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if !info.IsDir() {
-		if err := importFile(storeURL, *path, machine, *dryRun); err != nil {
+		if err := importFile(storeURL, *path, machine, *dryRun, *reapply); err != nil {
 			log.Fatalf("%s: %v", *path, err)
 		}
 		return
@@ -76,7 +78,7 @@ func main() {
 	sort.Strings(files)
 	failed := 0
 	for _, file := range files {
-		err := importFile(storeURL, file, machine, *dryRun)
+		err := importFile(storeURL, file, machine, *dryRun, *reapply)
 		switch {
 		case errors.Is(err, googletimeline.ErrNotLocationHistory):
 			fmt.Printf("%s: skipped: not a location history file\n", file)
@@ -90,7 +92,7 @@ func main() {
 	}
 }
 
-func importFile(storeURL, path, machine string, dryRun bool) error {
+func importFile(storeURL, path, machine string, dryRun, reapply bool) error {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -105,6 +107,7 @@ func importFile(storeURL, path, machine string, dryRun bool) error {
 	}
 	defer file.Close()
 	client := importclient.New(storeURL, hash, machine, absolute, dryRun)
+	client.Reapply = reapply
 	sink := &stoppingSink{Client: client}
 	report, err := googletimeline.Parse(file, sink)
 	if err != nil {
@@ -123,6 +126,10 @@ func importFile(storeURL, path, machine string, dryRun bool) error {
 		fmt.Printf("  left out %d: %s\n", count, reason)
 	}
 	if record == nil {
+		if snapshot := client.SnapshotRead(); snapshot != nil {
+			fmt.Printf("  a full snapshot of %s to %s (raw positions %s to %s)\n", describeTime(snapshot.CoversFrom),
+				describeTime(snapshot.CoversTo), describeTime(snapshot.RawSignalsOldestAt), describeTime(snapshot.RawSignalsNewestAt))
+		}
 		fmt.Println("  dry run: nothing posted")
 		return nil
 	}
@@ -131,6 +138,17 @@ func importFile(storeURL, path, machine string, dryRun bool) error {
 		return err
 	}
 	fmt.Printf("  %s finished: %s\n", record.ID, written)
+	if record.Snapshot != nil {
+		fmt.Printf("  a full snapshot of %s to %s (raw positions %s to %s)\n", describeTime(record.Snapshot.CoversFrom),
+			describeTime(record.Snapshot.CoversTo), describeTime(record.Snapshot.RawSignalsOldestAt), describeTime(record.Snapshot.RawSignalsNewestAt))
+	}
+	if record.SnapshotChanges != nil {
+		changes, err := json.Marshal(record.SnapshotChanges)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  snapshots reconciled: %s\n", changes)
+	}
 	return nil
 }
 
@@ -160,4 +178,11 @@ func describeCounts(read map[string]int) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+func describeTime(at int64) string {
+	if at == 0 {
+		return "none"
+	}
+	return time.Unix(at, 0).UTC().Format(time.RFC3339)
 }

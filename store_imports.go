@@ -11,19 +11,46 @@ import (
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-const importColumns = `id, kind, sha256, source_machine, source_path, imported_at, finished_at, counts`
+const importColumns = `id, kind, sha256, source_machine, source_path, imported_at, finished_at, counts, snapshot, snapshot_changes, seq`
 
-func scanImport(scan func(...any) error) (*Import, error) {
-	var record Import
+// importRow is an import with its seq, which orders snapshots that tie.
+type importRow struct {
+	Import
+	seq int64
+}
+
+func scanImportRow(scan func(...any) error) (*importRow, error) {
+	var record importRow
 	var counts string
+	var snapshot, changes sql.NullString
 	if err := scan(&record.ID, &record.Kind, &record.Sha256, &record.SourceMachine, &record.SourcePath,
-		&record.ImportedAt, &record.FinishedAt, &counts); err != nil {
+		&record.ImportedAt, &record.FinishedAt, &counts, &snapshot, &changes, &record.seq); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(counts), &record.Counts); err != nil {
 		return nil, fmt.Errorf("import %s has counts that are not JSON: %w", record.ID, err)
 	}
+	if snapshot.Valid {
+		record.Snapshot = &ImportSnapshot{}
+		if err := json.Unmarshal([]byte(snapshot.String), record.Snapshot); err != nil {
+			return nil, fmt.Errorf("import %s has a snapshot that is not JSON: %w", record.ID, err)
+		}
+	}
+	if changes.Valid {
+		record.SnapshotChanges = &SnapshotChanges{}
+		if err := json.Unmarshal([]byte(changes.String), record.SnapshotChanges); err != nil {
+			return nil, fmt.Errorf("import %s has snapshot changes that are not JSON: %w", record.ID, err)
+		}
+	}
 	return &record, nil
+}
+
+func scanImport(scan func(...any) error) (*Import, error) {
+	record, err := scanImportRow(scan)
+	if err != nil {
+		return nil, err
+	}
+	return &record.Import, nil
 }
 
 func getImportRow(q queryer, id string) (*Import, error) {
@@ -70,10 +97,19 @@ func (s *Store) StartImport(start ImportStart) (*ImportStarted, error) {
 	var id string
 	err := s.inTransaction(func(tx *sql.Tx) error {
 		var kind string
-		err := tx.QueryRow(`SELECT id, kind FROM imports WHERE sha256 = ?`, start.Sha256).Scan(&id, &kind)
+		var finishedAt int64
+		err := tx.QueryRow(`SELECT id, kind, finished_at FROM imports WHERE sha256 = ?`, start.Sha256).Scan(&id, &kind, &finishedAt)
 		if err == nil {
 			if kind != start.Kind {
 				return fmt.Errorf("%w: this file was imported as %s (%s), not %s", ErrConflict, kind, id, start.Kind)
+			}
+			if start.Reapply && finishedAt != 0 {
+				// Open it again; what it holds is recorded afresh as it is sent.
+				if _, err := tx.Exec(`DELETE FROM import_records WHERE import_id = ?`, id); err != nil {
+					return err
+				}
+				_, err = tx.Exec(`UPDATE imports SET finished_at = 0, counts = '{}', snapshot_changes = NULL WHERE id = ?`, id)
+				return err
 			}
 			return nil
 		}
@@ -99,11 +135,43 @@ func (s *Store) StartImport(start ImportStart) (*ImportStarted, error) {
 }
 
 // FinishImport stamps finished_at, after which the same file is not imported
-// again. Again changes nothing.
-func (s *Store) FinishImport(id string) (*Import, error) {
+// again. Again changes nothing. With a snapshot, the import is a full
+// snapshot of its span, and the snapshots are reconciled in the same
+// transaction (reconcileSnapshots).
+func (s *Store) FinishImport(id string, finish ImportFinish) (*Import, error) {
+	if finish.Snapshot != nil {
+		if err := checkTimeRange(finish.Snapshot.CoversFrom, finish.Snapshot.CoversTo); err != nil {
+			return nil, fmt.Errorf("snapshot: %w", err)
+		}
+		if finish.Snapshot.RawSignalsNewestAt < finish.Snapshot.RawSignalsOldestAt {
+			return nil, fmt.Errorf("%w: snapshot: raw_signals_newest_at is before raw_signals_oldest_at", ErrInvalid)
+		}
+	}
 	err := s.inTransaction(func(tx *sql.Tx) error {
 		record, err := getImportRow(tx, id)
 		if err != nil || record.FinishedAt != 0 {
+			return err
+		}
+		if finish.Snapshot != nil {
+			if record.Kind != ImportKindGoogleTimeline {
+				return fmt.Errorf("%w: only an on-device Timeline export (%s) is a snapshot; %s is %s", ErrInvalid, ImportKindGoogleTimeline, id, record.Kind)
+			}
+			encoded, err := json.Marshal(finish.Snapshot)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE imports SET snapshot=?, finished_at=? WHERE id=?`, string(encoded), now(), id); err != nil {
+				return err
+			}
+			changes, err := reconcileSnapshots(tx, now())
+			if err != nil {
+				return err
+			}
+			encoded, err = json.Marshal(changes)
+			if err != nil {
+				return err
+			}
+			_, err = tx.Exec(`UPDATE imports SET snapshot_changes=? WHERE id=?`, string(encoded), id)
 			return err
 		}
 		_, err = tx.Exec(`UPDATE imports SET finished_at=? WHERE id=?`, now(), id)
@@ -349,9 +417,13 @@ func applyVisit(tx *sql.Tx, importID string, visit ImportVisit, at int64, counts
 			source_semantic_type, source, source_ref, import_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, seq, nullableString(placeID), visit.StartedAt, visit.EndedAt, nullableFloat(visit.Latitude), nullableFloat(visit.Longitude),
 			nullableFloat(visit.Probability), visit.SourceSemanticType, visit.Source, visit.SourceRef, importID, at, at)
-		if err == nil {
-			counts.VisitsCreated++
+		if err != nil {
+			return err
 		}
+		counts.VisitsCreated++
+		return recordHeld(tx, importID, EntityVisit, id)
+	}
+	if err := recordHeld(tx, importID, EntityVisit, existingID); err != nil {
 		return err
 	}
 	current, err := getVisitRow(tx, existingID)
@@ -361,7 +433,10 @@ func applyVisit(tx *sql.Tx, importID string, visit ImportVisit, at int64, counts
 	if current.PlaceID != nil {
 		placeID = current.PlaceID
 	}
-	if current.DeletedAt != 0 || (sameString(current.PlaceID, placeID) && current.StartedAt == visit.StartedAt &&
+	// A visit someone deleted stays as they left it; one a newer export set
+	// aside is brought up to date, and reconcileSnapshots decides whether it
+	// comes back.
+	if (current.DeletedAt != 0 && current.SupersededByImportID == nil) || (sameString(current.PlaceID, placeID) && current.StartedAt == visit.StartedAt &&
 		current.EndedAt == visit.EndedAt && sameFloat(current.Latitude, visit.Latitude) && sameFloat(current.Longitude, visit.Longitude) &&
 		sameFloat(current.Probability, visit.Probability) && current.SourceSemanticType == visit.SourceSemanticType) {
 		counts.RecordsUnchanged++
@@ -465,7 +540,13 @@ func applyTrip(tx *sql.Tx, importID string, trip ImportTrip, at int64, counts *I
 			return err
 		}
 		counts.TripsCreated++
+		if err := recordHeld(tx, importID, EntityTrip, id); err != nil {
+			return err
+		}
 		return writePath(tx, id, trip.Path)
+	}
+	if err := recordHeld(tx, importID, EntityTrip, existingID); err != nil {
+		return err
 	}
 	current, err := getTripRow(tx, existingID)
 	if err != nil {
@@ -487,7 +568,7 @@ func applyTrip(tx *sql.Tx, importID string, trip ImportTrip, at int64, counts *I
 	if err != nil {
 		return err
 	}
-	if current.DeletedAt != 0 {
+	if current.DeletedAt != 0 && current.SupersededByImportID == nil {
 		counts.RecordsUnchanged++
 		return nil
 	}

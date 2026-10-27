@@ -10,7 +10,7 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HOME/bin"
 SERVICE="location-store.service"
 BINARY="location-store"
-TOOLS=(location-import-google location-import-photos)
+TOOLS=(location-import-google location-import-photos location-name-localities location-group-journeys)
 UNIT_SRC="$REPO_DIR/$SERVICE"
 UNIT_DEST="$HOME/.config/systemd/user/$SERVICE"
 cd "$REPO_DIR"

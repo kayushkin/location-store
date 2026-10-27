@@ -139,3 +139,36 @@ CREATE TABLE IF NOT EXISTS revisions (
     row_json     TEXT NOT NULL                     -- the whole row as it was, as JSON
 );
 CREATE INDEX IF NOT EXISTS idx_revisions_entity ON revisions(entity_id, revision_id DESC);
+
+-- A stretch of time with one home base: the place the user slept most
+-- nights. location-group-journeys writes these from the visits, and a
+-- re-run updates the ones it wrote. ended_at 0 runs on past the newest data.
+-- A level above journeys, when there is one, is likely to start from these.
+CREATE TABLE IF NOT EXISTS home_periods (
+    id              TEXT PRIMARY KEY,              -- home_period_000001
+    seq             INTEGER NOT NULL UNIQUE,
+    place_id        TEXT REFERENCES places(id),    -- NULL when the nights there named no place
+    latitude        REAL NOT NULL,
+    longitude       REAL NOT NULL,
+    locality        TEXT,                          -- Locality as JSON; NULL until named
+    started_at      INTEGER NOT NULL,
+    ended_at        INTEGER NOT NULL DEFAULT 0,
+    nights_known    INTEGER NOT NULL DEFAULT 0,
+    nights_at_home  INTEGER NOT NULL DEFAULT 0,
+    described_by    TEXT NOT NULL,                 -- who found it: location-group-journeys
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    deleted_at      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_home_periods_time ON home_periods(deleted_at, started_at);
+
+-- Which visits and trips each import's file holds, whether the import made
+-- them, changed them or found them as they were. A full-snapshot export
+-- supersedes what an older one held in its span and it does not.
+CREATE TABLE IF NOT EXISTS import_records (
+    import_id    TEXT NOT NULL REFERENCES imports(id),
+    entity_type  TEXT NOT NULL,                    -- visit | trip
+    entity_id    TEXT NOT NULL,
+    PRIMARY KEY (import_id, entity_type, entity_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_import_records_entity ON import_records(entity_id);
