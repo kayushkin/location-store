@@ -14,6 +14,8 @@ directory 0700, file 0600). Timestamps are epoch seconds.
 | `LOCATION_STORE_DATA_DIR` | `~/.config/location-store` | holds `location-store.db` |
 | `LOCATION_STORE_URL` | `http://127.0.0.1:8333` | the commands: where location-store answers |
 | `PHOTO_STORE_URL` | `http://127.0.0.1:8329` | `location-import-photos`: where photo-store answers |
+| `DASH_URL` | `http://localhost:8101` | `location-match-calendar`: where dash answers, the one way to Google Calendar |
+| `DASH_TOKEN` | (secret, required) | `location-match-calendar`: dash's bearer token, sent only to `DASH_URL`, never printed. The service itself never holds it |
 
 ## Records
 
@@ -151,6 +153,73 @@ above journeys, when there is one, is likely to start from these.
    set by hand stays where it is. Each change is copied to `revisions`
    (reason `journey`).
 
+### `calendar_event_links`
+
+A Google Calendar event tied to where the user was for it. The event is
+Google's, found again by `calendar_id` and `event_id` and never by its
+summary; one link per event and record.
+
+| Field | Meaning |
+|---|---|
+| `id` | `calendar_event_link_000001` |
+| `calendar_id`, `event_id` | Google's ids: what the link is found again by |
+| `recurring_event_id` | the series the event is an instance of; `""` for a single event |
+| `summary`, `location` | the event's as last read, for display only |
+| `started_at`, `ended_at`, `all_day` | the event's times; an all-day event's are its local days |
+| `target_type`, `target_id` | `visit`, `trip` or `place`, and its id |
+| `rule`, `confidence`, `reason` | `GET /vocabularies` `calendar_match_rules`; 0..1; in words, what agreed |
+| `matched_by` | `location-match-calendar`, or `hand` (through the routes) |
+| `deleted_at`, `deleted_by` | soft delete; a link `deleted_by` `hand` is never made again |
+
+### Calendar events
+
+`location-match-calendar [-from YYYY-MM-DD] [-to YYYY-MM-DD] [-calendar
+<id>,…] [-dry-run] [-all]` (default the last 90 days) reads every calendar
+dash lists, and their events in the window, and sends them to `POST
+/calendar/match`, which decides. Run it last: import, then
+`location-name-localities`, then `location-group-journeys`, then this. Nothing
+is geocoded by an outside service: an event's location is matched against
+the names and addresses of the store's places, and against GeoNames town
+names on disk. Each event is decided by the first rule that applies:
+
+1. **Not a plan.** Cancelled events, and Google's `birthday`,
+   `workingLocation`, `outOfOffice` and `focusTime` events, link nothing.
+2. **Flights.** A summary `Flight to X (AA 123)` links to the `flying`
+   movement overlapping it most (`flight`, 0.9) and to that movement's
+   journey (`flight_journey`, 0.8); with no flight recorded, to the journey
+   it falls in (`flight_journey`, 0.6).
+3. **Video calls.** A location naming Teams, Zoom, Google Meet, Webex or
+   Skype, or no location and a Meet link, links nothing.
+4. **A known place.** When a part of the location (split at commas,
+   semicolons and brackets) is a place's whole name, or the location holds
+   the street line of a place's address (and its town), the visit near that
+   place (its place, or within its radius, at least 150 m) that overlaps the
+   event most links (`place`, 0.9). Overlap means half the event, or half an
+   hour of a longer one. Recurring or not.
+5. **A town.** Otherwise the first part after the first that is a GeoNames
+   town's name (narrowed by a region after it: `NV`, `Nevada`) names the
+   town; a visit is in it when its locality has that name or it lies within
+   the town's reach (at least 5 km) plus 3 km. Visits at home (a `home`
+   place, or within 300 m of the home period in force) never count.
+   - A **recurring** event links only when its series has one place the
+     user was at for at least 3 of its times, and at least half the times
+     they were anywhere in that town but home (`series_place`, 0.7). A
+     routine never links by time alone.
+   - A **single timed** event links to a visit in the town that began within
+     an hour of its start (`town_visit`, 0.5).
+   - Else a single event links to a journey that was in the town, more than
+     80 km from home, while it ran (`town_journey`, 0.5).
+6. **No location.** A single event with no location (or only a web
+   address), on a calendar whose `accessRole` is `owner` or `writer`, links
+   to the journey it falls in (`journey_time`, 0.4). A recurring one never
+   does, and a calendar the user only reads holds other people's days off.
+
+A run settles only its own links of the calendars it was sent, for events in
+its window: it makes new ones, rewrites changed ones, deletes ones it no
+longer finds (an event moved or removed), and restores ones it deleted
+itself. A link made by hand is left as it is, and one a person deleted stays
+deleted. No run writes a name, title or description.
+
 ### `points`
 
 Raw fixes, possibly millions; no public ids. `timestamp`, `latitude`,
@@ -189,11 +258,11 @@ A `PATCH` with an unknown key, or `null` on a field that is not a link, is a
 | `PATCH` | `/places/{id}` | any of `name`, `latitude`, `longitude`, `radius_meters`, `address`, `kind`, `description`, `described_by`, `tags` |
 | `GET` | `/visits` | earliest first. `?from=&to=`, `?place_id=`, `?source=`, `?tag=` |
 | `POST` | `/visits` | `{place_id, started_at, ended_at, latitude, longitude, description, described_by, tags}`; a place or a coordinate required. **201** |
-| `GET` | `/visits/{id}` | |
+| `GET` | `/visits/{id}` | with `calendar_event_links`, the live links to it (lists leave them out) |
 | `PATCH` | `/visits/{id}` | any of `place_id` (null clears), `description`, `described_by`, `tags` |
 | `GET` | `/trips` | earliest first. `?from=&to=`, `?mode=`, `?parent_trip_id=` (an id lists its children; `none` lists trips that are part of no other), `?min_distance_meters=`, `?source=`, `?tag=`, `?exclude_parents=true`, `?kind=` (`movement`, `journey`) |
 | `POST` | `/trips` | `{kind, title, started_at, ended_at, mode, parent_trip_id, start_/end_ latitude/longitude, start_place_id, end_place_id, distance_meters, description, described_by, tags}`; title, times and mode required; `kind` is `journey` when left out. Usually a road trip or holiday to attach imported drives to. `title_by` and, with a parent, `parent_set_by` are `hand`. **201** |
-| `GET` | `/trips/{id}` | |
+| `GET` | `/trips/{id}` | with `calendar_event_links`, the live links to it (lists leave them out) |
 | `PATCH` | `/trips/{id}` | any of `parent_trip_id`, `start_place_id`, `end_place_id` (null clears each), `mode`, `title`, `description`, `described_by`, `tags`. A parent that would make a loop is a 400. Patching `title` sets `title_by` to `hand`; patching `parent_trip_id`, to a trip or to null, sets `parent_set_by` to `hand`, so `location-group-journeys` leaves the trip where it was put |
 | `GET` | `/trips/{id}/path` | `[{latitude, longitude, timestamp}]` in order; `timestamp` null when the source gave none |
 | `POST` | `/trips/{id}/children` | `{"trip_ids":[…]}`: makes each part of this trip, all or none, with `parent_set_by` `hand`. Answers the parent |
@@ -205,7 +274,12 @@ A `PATCH` with an unknown key, or `null` on a field that is not a link, is a
 | `GET` | `/home-periods/{id}` | |
 | `POST` | `/journeys/group` | `{dry_run, away_distance_meters, minimum_away_seconds, home_change_days, return_break_seconds}`, 0 = default. Answers `{dry_run, request, home_periods, journeys:[{action, trip_id, title, started_at, ended_at, mode, nights, farthest_meters, child_trip_ids, children_attached, children_detached, children_kept_elsewhere, notes}], deleted_journey_ids, home_places_marked, notes}`; `action` is `create`, `update`, `unchanged` or `skip`. A dry run writes nothing and answers `trip_id` `""` for a journey it would create. **409** without the GeoNames files |
 | `GET` | `/journeys` | trips of kind `journey`, earliest first; takes `GET /trips`' time range and paging |
-| `GET` | `/journeys/{id}` | `{trip, children, visits, localities:[{locality, seconds, arrived_at}]}`: the trip, the trips that make it up, the visits inside its span, and the towns those visits were in, in order of arrival |
+| `GET` | `/journeys/{id}` | `{trip, children, visits, localities:[{locality, seconds, arrived_at}], calendar_event_links}`: the trip, the trips that make it up, the visits inside its span, the towns those visits were in, in order of arrival, and the live calendar event links to any of them |
+| `POST` | `/calendar/match` | `{dry_run, from, to, calendars:[{calendar:{id, summary, summaryOverride, accessRole, timeZone}, events:[{id, status, eventType, summary, location, recurringEventId, hangoutLink, start:{dateTime, date, timeZone}, end}]}]}`, Google's own field names. Answers `{dry_run, from, to, events_read, links_by_rule, unlinked, actions, links:[{action, link}], notes}`; `action` is `create`, `update`, `unchanged`, `restore`, `delete` or `kept_deleted`. A dry run writes nothing and answers `id` `""` for a link it would make. **409** without the GeoNames files |
+| `GET` | `/calendar-event-links` | earliest event first. `?from=&to=`, `?visit_id=`, `?trip_id=`, `?place_id=` (links to the place and to its visits), `?calendar_id=`, `?event_id=`, `?rule=`, `?matched_by=`, `?include_deleted=true` |
+| `POST` | `/calendar-event-links` | `{calendar_id, event_id, recurring_event_id, summary, location, started_at, ended_at, all_day, target_type, target_id, reason}`: a link by hand (`rule` and `matched_by` `hand`, confidence 1); one already there for the same event and record becomes this. **201** |
+| `GET` | `/calendar-event-links/{id}` | |
+| `DELETE` | `/calendar-event-links/{id}` | soft, **204**, `deleted_by` `hand`: no run makes it again |
 | `GET` | `/timeline` | visits and trips overlapping `?from=&to=`, in start order: `[{kind:"visit"\|"trip", visit, trip}]`. Trips that have children are left out unless `?include_parent_trips=true`. `?source=`; `?limit=` default 500, max 5000 |
 | `GET` | `/points` | earliest first. `?from=` (inclusive) `&to=` (exclusive) on `timestamp`, `?source=`, `?source_ref=`; `?limit=` default 1000, max 10000 |
 | `GET` | `/imports` | newest first |

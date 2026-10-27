@@ -80,7 +80,46 @@ const (
 	SetByJourneyGrouping = "location-group-journeys"
 	// SetByLocalityNaming is location-name-localities.
 	SetByLocalityNaming = "location-name-localities"
+	// SetByCalendarMatching is location-match-calendar.
+	SetByCalendarMatching = "location-match-calendar"
 )
+
+// How a calendar event was matched to where the user was.
+const (
+	// CalendarRulePlace: the event's location names a known place, by name or
+	// address, and a visit near that place overlaps the event.
+	CalendarRulePlace = "place"
+	// CalendarRuleSeriesPlace: the event is one of a recurring series whose
+	// location names a town, and at three or more of its times the user was at
+	// the same place in that town, not home.
+	CalendarRuleSeriesPlace = "series_place"
+	// CalendarRuleTownVisit: a single event whose location names a town, and
+	// the user arrived at a place in that town, not home, within an hour of
+	// its start.
+	CalendarRuleTownVisit = "town_visit"
+	// CalendarRuleTownJourney: a single event whose location names a town
+	// away from home, during a journey that was in that town while the event
+	// ran.
+	CalendarRuleTownJourney = "town_journey"
+	// CalendarRuleFlight: a "Flight to X (AA 123)" event and the flight
+	// recorded at its time.
+	CalendarRuleFlight = "flight"
+	// CalendarRuleFlightJourney: the journey a flight event's flight is part
+	// of, or that the event falls in when no flight was recorded.
+	CalendarRuleFlightJourney = "flight_journey"
+	// CalendarRuleJourneyTime: a single event with no location, on a calendar
+	// the user owns, during a journey. Time alone: the weakest rule.
+	CalendarRuleJourneyTime = "journey_time"
+	// CalendarRuleHand: made by a person or agent through the routes.
+	CalendarRuleHand = "hand"
+)
+
+// CalendarMatchRules is every rule a calendar event link can have.
+var CalendarMatchRules = []string{CalendarRulePlace, CalendarRuleSeriesPlace, CalendarRuleTownVisit, CalendarRuleTownJourney,
+	CalendarRuleFlight, CalendarRuleFlightJourney, CalendarRuleJourneyTime, CalendarRuleHand}
+
+// CalendarLinkTargetTypes is every kind of record a calendar event links to.
+var CalendarLinkTargetTypes = []string{EntityVisit, EntityTrip, EntityPlace}
 
 // Where a raw point came from.
 const (
@@ -114,6 +153,10 @@ type Vocabularies struct {
 	RecordSources []string `json:"record_sources"`
 	PointSources  []string `json:"point_sources"`
 	ImportKinds   []string `json:"import_kinds"`
+	// CalendarMatchRules are the rules a calendar event link names.
+	CalendarMatchRules []string `json:"calendar_match_rules"`
+	// CalendarLinkTargetTypes are what a calendar event links to.
+	CalendarLinkTargetTypes []string `json:"calendar_link_target_types"`
 }
 
 func knownWord(words []string, word string) bool {

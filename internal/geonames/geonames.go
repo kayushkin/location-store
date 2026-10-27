@@ -61,7 +61,10 @@ type Index struct {
 	cells     map[[2]int][]City
 	regions   map[string]string // "XX.01" → "Example Region"
 	countries map[string]string // "XX" → "Exampleland"
-	Cities    int
+	// byName holds every town under its name and its ASCII name, lowercased,
+	// so a town named in text is found without asking anyone.
+	byName map[string][]City
+	Cities int
 }
 
 // Present says whether all three files are in dir.
@@ -158,7 +161,7 @@ var skippedFeatureCodes = map[string]bool{"PPLX": true, "PPLH": true, "PPLQ": tr
 
 // Load reads the three files from dir.
 func Load(dir string) (*Index, error) {
-	index := &Index{cells: map[[2]int][]City{}, regions: map[string]string{}, countries: map[string]string{}}
+	index := &Index{cells: map[[2]int][]City{}, regions: map[string]string{}, countries: map[string]string{}, byName: map[string][]City{}}
 	err := eachLine(filepath.Join(dir, RegionsFile), func(fields []string) error {
 		if len(fields) < 2 {
 			return errors.New("a region line has fewer than 2 fields")
@@ -203,6 +206,9 @@ func Load(dir string) (*Index, error) {
 			RegionCode: fields[10], Population: population, TimeZone: fields[17]}
 		cell := cellOf(latitude, longitude)
 		index.cells[cell] = append(index.cells[cell], city)
+		for _, name := range uniqueNames(fields[1], fields[2]) {
+			index.byName[name] = append(index.byName[name], city)
+		}
 		index.Cities++
 		return nil
 	})
@@ -238,6 +244,30 @@ func eachLine(path string, read func(fields []string) error) error {
 func cellOf(latitude, longitude float64) [2]int {
 	return [2]int{int(math.Floor(latitude)), int(math.Floor(longitude))}
 }
+
+func uniqueNames(name, asciiName string) []string {
+	first, second := strings.ToLower(strings.TrimSpace(name)), strings.ToLower(strings.TrimSpace(asciiName))
+	if second == "" || second == first {
+		return []string{first}
+	}
+	return []string{first, second}
+}
+
+// Named is every town whose name or ASCII name is name, in any case. It
+// reads only the files in memory.
+func (index *Index) Named(name string) []City {
+	return index.byName[strings.ToLower(strings.TrimSpace(name))]
+}
+
+// RegionName is the name of a town's first-level region (Nevada for US.NV),
+// or "" when the files hold none.
+func (index *Index) RegionName(city City) string {
+	return index.regions[city.CountryCode+"."+city.RegionCode]
+}
+
+// ReachMeters is how far from its centre a town reaches, as Nearest counts
+// it.
+func ReachMeters(city City) float64 { return reachMeters(city.Population) }
 
 // reachMeters is how far from its centre a town of this many people reaches,
 // roughly: 15 m per square root of a person, so about 12 km for 650,000

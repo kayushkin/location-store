@@ -119,3 +119,29 @@ func JourneyGroupingSettingDefinitions() []servicesettings.Definition {
 func NewJourneyGroupingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New("location-group-journeys", nil, JourneyGroupingSettingDefinitions(), environment)
 }
+
+// Keys of location-match-calendar's settings.
+const (
+	SettingDashURL   = "dash_url"
+	SettingDashToken = "dash_token"
+)
+
+// CalendarMatchingSettingDefinitions declares every environment variable
+// location-match-calendar reads. dash is the one way to Google Calendar: the
+// command reads the events there and hands them to location-store, which
+// decides, so the service itself never holds the token.
+func CalendarMatchingSettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{
+		locationStoreURLDefinition(),
+		{Key: SettingDashURL, EnvironmentVariable: "DASH_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: "http://localhost:8101",
+			Description: "Where dash answers: the calendars and their events are read from its /api/calendar/google routes."},
+		{Key: SettingDashToken, EnvironmentVariable: "DASH_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString, Required: true,
+			Description: "dash's bearer token, sent only to DASH_URL and never printed."},
+	}
+}
+
+// NewCalendarMatchingSettingsRegistry reads location-match-calendar's
+// settings. It owns no prefix: DASH_ belongs to dash.
+func NewCalendarMatchingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New(SetByCalendarMatching, nil, CalendarMatchingSettingDefinitions(), environment)
+}

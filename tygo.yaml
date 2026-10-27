@@ -15,3 +15,4 @@ packages:
       - "journeys.go"
       - "localities.go"
       - "snapshots.go"
+      - "calendar.go"

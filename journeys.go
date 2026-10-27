@@ -1247,5 +1247,15 @@ func (s *Store) Journey(id string) (*JourneySummary, error) {
 		}
 		summary.Localities[position].Seconds += seconds
 	}
+	targets := []string{trip.ID}
+	for _, child := range summary.Children {
+		targets = append(targets, child.ID)
+	}
+	for _, visit := range summary.Visits {
+		targets = append(targets, visit.ID)
+	}
+	if summary.CalendarEventLinks, err = s.liveCalendarEventLinksTo(targets); err != nil {
+		return nil, err
+	}
 	return summary, nil
 }

@@ -50,6 +50,12 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	mux.HandleFunc("GET /journeys", h.listJourneys)
 	mux.HandleFunc("GET /journeys/{id}", h.getJourney)
 
+	mux.HandleFunc("POST /calendar/match", h.matchCalendar)
+	mux.HandleFunc("GET /calendar-event-links", h.listCalendarEventLinks)
+	mux.HandleFunc("POST /calendar-event-links", h.createCalendarEventLink)
+	mux.HandleFunc("GET /calendar-event-links/{id}", h.getCalendarEventLink)
+	mux.HandleFunc("DELETE /calendar-event-links/{id}", h.deleteCalendarEventLink)
+
 	mux.HandleFunc("GET /timeline", h.timeline)
 	mux.HandleFunc("GET /points", h.listPoints)
 
@@ -74,7 +80,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) vocabularies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Vocabularies{PlaceKinds: PlaceKinds, TripKinds: TripKinds, TripModes: TripModes, RecordSources: RecordSources,
-		PointSources: PointSources, ImportKinds: ImportKinds})
+		PointSources: PointSources, ImportKinds: ImportKinds, CalendarMatchRules: CalendarMatchRules, CalendarLinkTargetTypes: CalendarLinkTargetTypes})
 }
 
 // ---- query parameters ----
@@ -276,6 +282,9 @@ func (h *handler) getVisit(w http.ResponseWriter, r *http.Request) {
 	if respondError(w, err) {
 		return
 	}
+	if visit.CalendarEventLinks, err = h.s.liveCalendarEventLinksTo([]string{visit.ID}); respondError(w, err) {
+		return
+	}
 	writeJSON(w, http.StatusOK, visit)
 }
 
@@ -326,6 +335,9 @@ func (h *handler) createTrip(w http.ResponseWriter, r *http.Request) {
 func (h *handler) getTrip(w http.ResponseWriter, r *http.Request) {
 	trip, err := h.s.GetTrip(r.PathValue("id"), r.URL.Query().Get("include_deleted") == "true")
 	if respondError(w, err) {
+		return
+	}
+	if trip.CalendarEventLinks, err = h.s.liveCalendarEventLinksTo([]string{trip.ID}); respondError(w, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, trip)
@@ -440,6 +452,62 @@ func (h *handler) getJourney(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// ---- calendar events ----
+
+func (h *handler) matchCalendar(w http.ResponseWriter, r *http.Request) {
+	var request CalendarMatchRequest
+	if !decodeBody(w, r, 64<<20, &request) {
+		return
+	}
+	matching, err := h.s.MatchCalendar(request)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, matching)
+}
+
+func (h *handler) listCalendarEventLinks(w http.ResponseWriter, r *http.Request) {
+	q := &queryReader{w: w, r: r}
+	filter := CalendarEventLinkFilter{From: q.integer("from"), To: q.integer("to"), VisitID: q.text("visit_id"), TripID: q.text("trip_id"),
+		PlaceID: q.text("place_id"), CalendarID: q.text("calendar_id"), EventID: q.text("event_id"), Rule: q.text("rule"),
+		MatchedBy: q.text("matched_by"), IncludeDeleted: q.boolean("include_deleted"), Limit: int(q.integer("limit")), Offset: int(q.integer("offset"))}
+	if q.failed {
+		return
+	}
+	links, err := h.s.ListCalendarEventLinks(filter)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, links)
+}
+
+func (h *handler) createCalendarEventLink(w http.ResponseWriter, r *http.Request) {
+	var create CalendarEventLinkCreate
+	if !decodeBody(w, r, 1<<20, &create) {
+		return
+	}
+	link, err := h.s.CreateCalendarEventLink(create)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusCreated, link)
+}
+
+func (h *handler) getCalendarEventLink(w http.ResponseWriter, r *http.Request) {
+	link, err := h.s.GetCalendarEventLink(r.PathValue("id"), r.URL.Query().Get("include_deleted") == "true")
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, link)
+}
+
+func (h *handler) deleteCalendarEventLink(w http.ResponseWriter, r *http.Request) {
+	if respondError(w, h.s.DeleteCalendarEventLink(r.PathValue("id"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- shared ----

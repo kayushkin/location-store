@@ -62,10 +62,13 @@ type Visit struct {
 	SupersededByImportID *string `json:"superseded_by_import_id"`
 	// Locality is the town the visit was in: the visit's own coordinate, or
 	// its place's. Null until location-name-localities names it.
-	Locality  *Locality `json:"locality"`
-	CreatedAt int64     `json:"created_at"`
-	UpdatedAt int64     `json:"updated_at"`
-	DeletedAt int64     `json:"deleted_at"`
+	Locality *Locality `json:"locality"`
+	// CalendarEventLinks are the live calendar events linked to the visit.
+	// Only GET /visits/{id} fills them; lists leave them out.
+	CalendarEventLinks []CalendarEventLink `json:"calendar_event_links,omitempty"`
+	CreatedAt          int64               `json:"created_at"`
+	UpdatedAt          int64               `json:"updated_at"`
+	DeletedAt          int64               `json:"deleted_at"`
 }
 
 // Trip is a movement from one place to another, or, with children, a road
@@ -123,10 +126,13 @@ type Trip struct {
 	// PathPoints is how many points GET /trips/{id}/path answers.
 	PathPoints int `json:"path_points"`
 	// ChildTrips is how many live trips name this one as their parent.
-	ChildTrips int   `json:"child_trips"`
-	CreatedAt  int64 `json:"created_at"`
-	UpdatedAt  int64 `json:"updated_at"`
-	DeletedAt  int64 `json:"deleted_at"`
+	ChildTrips int `json:"child_trips"`
+	// CalendarEventLinks are the live calendar events linked to the trip.
+	// Only GET /trips/{id} fills them; lists leave them out.
+	CalendarEventLinks []CalendarEventLink `json:"calendar_event_links,omitempty"`
+	CreatedAt          int64               `json:"created_at"`
+	UpdatedAt          int64               `json:"updated_at"`
+	DeletedAt          int64               `json:"deleted_at"`
 }
 
 // PathPoint is one point of a trip's path, in order.
@@ -528,4 +534,144 @@ type JourneySummary struct {
 	Children   []Trip            `json:"children"`
 	Visits     []Visit           `json:"visits"`
 	Localities []JourneyLocality `json:"localities"`
+	// CalendarEventLinks are the live calendar events linked to the
+	// journey, to its trips or to its visits.
+	CalendarEventLinks []CalendarEventLink `json:"calendar_event_links"`
+}
+
+// CalendarEventLink ties one calendar event to where the user was for it: a
+// visit, a trip (a flight, or a journey) or a place. location-store owns the
+// link; the event belongs to Google Calendar and is found again by
+// CalendarID and EventID, never by its summary.
+type CalendarEventLink struct {
+	// ID is calendar_event_link_000001.
+	ID string `json:"id"`
+	// CalendarID and EventID are Google Calendar's ids for the event: what
+	// the link is found again by.
+	CalendarID string `json:"calendar_id"`
+	EventID    string `json:"event_id"`
+	// RecurringEventID is the series the event is one instance of; "" for a
+	// single event.
+	RecurringEventID string `json:"recurring_event_id"`
+	// Summary and Location are the event's as last read, for display only.
+	Summary  string `json:"summary"`
+	Location string `json:"location"`
+	// StartedAt and EndedAt are the event's times; an all-day event's are
+	// its local days.
+	StartedAt int64 `json:"started_at"`
+	EndedAt   int64 `json:"ended_at"`
+	AllDay    bool  `json:"all_day"`
+	// TargetType is visit, trip or place; TargetID that record's id.
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	// Rule is how it matched: one of GET /vocabularies calendar_match_rules.
+	Rule string `json:"rule"`
+	// Confidence is 0..1: how likely the event is what the user was there
+	// for.
+	Confidence float64 `json:"confidence"`
+	// Reason says, in words, what agreed.
+	Reason string `json:"reason"`
+	// MatchedBy is who made the link: location-match-calendar, or hand.
+	MatchedBy string `json:"matched_by"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+	DeletedAt int64  `json:"deleted_at"`
+	// DeletedBy is who deleted it. A link a person deleted stays deleted: a
+	// later matching run does not make it again.
+	DeletedBy string `json:"deleted_by"`
+}
+
+// CalendarEventLinkCreate is the body of POST /calendar-event-links: a link
+// a person or agent makes by hand.
+type CalendarEventLinkCreate struct {
+	CalendarID       string `json:"calendar_id"`
+	EventID          string `json:"event_id"`
+	RecurringEventID string `json:"recurring_event_id"`
+	Summary          string `json:"summary"`
+	Location         string `json:"location"`
+	StartedAt        int64  `json:"started_at"`
+	EndedAt          int64  `json:"ended_at"`
+	AllDay           bool   `json:"all_day"`
+	TargetType       string `json:"target_type"`
+	TargetID         string `json:"target_id"`
+	Reason           string `json:"reason"`
+}
+
+// GoogleCalendar is the part of a Google Calendar list entry the matching
+// reads.
+type GoogleCalendar struct {
+	ID              string `json:"id"`
+	Summary         string `json:"summary"`
+	SummaryOverride string `json:"summaryOverride"`
+	// AccessRole is owner, writer, reader or freeBusyReader. Only events on
+	// a calendar the user owns or writes count without a location: a
+	// calendar they only read holds other people's days off and meetings.
+	AccessRole string `json:"accessRole"`
+	// TimeZone places an all-day event that names no zone of its own.
+	TimeZone string `json:"timeZone"`
+}
+
+// GoogleEventTime is a Google Calendar event's start or end: DateTime for a
+// timed event, Date (YYYY-MM-DD) for an all-day one.
+type GoogleEventTime struct {
+	DateTime string `json:"dateTime"`
+	Date     string `json:"date"`
+	TimeZone string `json:"timeZone"`
+}
+
+// GoogleCalendarEvent is the part of a Google Calendar event the matching
+// reads, with Google's own field names.
+type GoogleCalendarEvent struct {
+	ID               string          `json:"id"`
+	Status           string          `json:"status"`
+	EventType        string          `json:"eventType"`
+	Summary          string          `json:"summary"`
+	Location         string          `json:"location"`
+	RecurringEventID string          `json:"recurringEventId"`
+	HangoutLink      string          `json:"hangoutLink"`
+	Start            GoogleEventTime `json:"start"`
+	End              GoogleEventTime `json:"end"`
+}
+
+// CalendarEvents is one calendar and its events in a window.
+type CalendarEvents struct {
+	Calendar GoogleCalendar        `json:"calendar"`
+	Events   []GoogleCalendarEvent `json:"events"`
+}
+
+// CalendarMatchRequest is the body of POST /calendar/match: the events of
+// each calendar read for the window From to To.
+type CalendarMatchRequest struct {
+	DryRun bool `json:"dry_run"`
+	// From and To are the window the events were read for. The run settles
+	// its own links of these calendars' events in it, and no others.
+	From      int64            `json:"from"`
+	To        int64            `json:"to"`
+	Calendars []CalendarEvents `json:"calendars"`
+}
+
+// PlannedCalendarEventLink is one link a matching run found, or one of its
+// own it no longer finds, and what it did or would do.
+type PlannedCalendarEventLink struct {
+	// Action is create, update, unchanged, restore, delete, or
+	// kept_deleted (a person deleted the link; it stays deleted).
+	Action string            `json:"action"`
+	Link   CalendarEventLink `json:"link"`
+}
+
+// CalendarMatching answers POST /calendar/match.
+type CalendarMatching struct {
+	DryRun bool  `json:"dry_run"`
+	From   int64 `json:"from"`
+	To     int64 `json:"to"`
+	// EventsRead is how many events the request carried.
+	EventsRead int `json:"events_read"`
+	// LinksByRule counts the links found, by rule.
+	LinksByRule map[string]int `json:"links_by_rule"`
+	// Unlinked counts the events that found nothing, by why.
+	Unlinked map[string]int `json:"unlinked"`
+	// Actions counts the links by action.
+	Actions map[string]int             `json:"actions"`
+	Links   []PlannedCalendarEventLink `json:"links"`
+	Notes   []string                   `json:"notes"`
 }

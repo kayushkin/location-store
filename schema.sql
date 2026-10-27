@@ -172,3 +172,34 @@ CREATE TABLE IF NOT EXISTS import_records (
     PRIMARY KEY (import_id, entity_type, entity_id)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_import_records_entity ON import_records(entity_id);
+
+-- A calendar event tied to where the user was for it. The event is Google
+-- Calendar's, found again by calendar_id and event_id; summary and location
+-- are carried for display only and never read back to find anything.
+-- location-match-calendar rewrites only links whose matched_by is its own,
+-- and never makes again a link a person deleted (deleted_by 'hand').
+CREATE TABLE IF NOT EXISTS calendar_event_links (
+    id                  TEXT PRIMARY KEY,          -- calendar_event_link_000001
+    seq                 INTEGER NOT NULL UNIQUE,
+    calendar_id         TEXT NOT NULL,
+    event_id            TEXT NOT NULL,
+    recurring_event_id  TEXT NOT NULL DEFAULT '',
+    summary             TEXT NOT NULL DEFAULT '',
+    location            TEXT NOT NULL DEFAULT '',
+    started_at          INTEGER NOT NULL,
+    ended_at            INTEGER NOT NULL,
+    all_day             INTEGER NOT NULL DEFAULT 0,
+    target_type         TEXT NOT NULL,             -- visit | trip | place
+    target_id           TEXT NOT NULL,
+    rule                TEXT NOT NULL,             -- vocabulary.go CalendarMatchRules
+    confidence          REAL NOT NULL,
+    reason              TEXT NOT NULL DEFAULT '',
+    matched_by          TEXT NOT NULL,             -- location-match-calendar | hand
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    deleted_at          INTEGER NOT NULL DEFAULT 0,
+    deleted_by          TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_event_links_identity ON calendar_event_links(calendar_id, event_id, target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_event_links_target ON calendar_event_links(target_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_calendar_event_links_time ON calendar_event_links(deleted_at, started_at);

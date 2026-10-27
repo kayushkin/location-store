@@ -35,7 +35,7 @@ func TestTheRegistryReadsDefaultsAndRefusesAnUndeclaredVariable(t *testing.T) {
 func TestEveryEnvironmentVariableTheServiceReadsIsDeclared(t *testing.T) {
 	declared := map[string]bool{}
 	for _, definition := range append(append(append(append(SettingDefinitions(), ImportGoogleSettingDefinitions()...), ImportPhotosSettingDefinitions()...),
-		LocalityNamingSettingDefinitions()...), JourneyGroupingSettingDefinitions()...) {
+		LocalityNamingSettingDefinitions()...), append(JourneyGroupingSettingDefinitions(), CalendarMatchingSettingDefinitions()...)...) {
 		declared[definition.EnvironmentVariable] = true
 	}
 	filesRead := 0
