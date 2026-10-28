@@ -64,6 +64,7 @@ func RegisterSettingsHandler(mux *http.ServeMux, registry *servicesettings.Regis
 const (
 	SettingLocationStoreURL = "location_store_url"
 	SettingPhotoStoreURL    = "photo_store_url"
+	SettingActivityStoreURL = "activity_store_url"
 )
 
 func locationStoreURLDefinition() servicesettings.Definition {
@@ -89,13 +90,41 @@ func ImportPhotosSettingDefinitions() []servicesettings.Definition {
 	return []servicesettings.Definition{
 		locationStoreURLDefinition(),
 		{Key: SettingPhotoStoreURL, EnvironmentVariable: "PHOTO_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: "http://127.0.0.1:8329",
-			Description: "Where photo-store answers: the photos with GPS are read from there."},
+			Description: "Where photo-store answers: the photos are read from there."},
 	}
 }
 
 // NewImportPhotosSettingsRegistry reads location-import-photos' settings.
 func NewImportPhotosSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New("location-import-photos", nil, ImportPhotosSettingDefinitions(), environment)
+}
+
+// ImportPhotoSidecarsSettingDefinitions declares every environment variable
+// location-import-photo-sidecars reads: the same as location-import-photos.
+func ImportPhotoSidecarsSettingDefinitions() []servicesettings.Definition {
+	return ImportPhotosSettingDefinitions()
+}
+
+// NewImportPhotoSidecarsSettingsRegistry reads
+// location-import-photo-sidecars' settings.
+func NewImportPhotoSidecarsSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New("location-import-photo-sidecars", nil, ImportPhotoSidecarsSettingDefinitions(), environment)
+}
+
+// ImportActivitySettingDefinitions declares every environment variable
+// location-import-activity reads.
+func ImportActivitySettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{
+		locationStoreURLDefinition(),
+		{Key: SettingActivityStoreURL, EnvironmentVariable: "ACTIVITY_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: "http://127.0.0.1:8336",
+			Description: "Where activity-store answers: the activities with coordinates are read from there."},
+	}
+}
+
+// NewImportActivitySettingsRegistry reads location-import-activity's
+// settings. It owns no prefix: ACTIVITY_STORE_ belongs to activity-store.
+func NewImportActivitySettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New("location-import-activity", nil, ImportActivitySettingDefinitions(), environment)
 }
 
 // LocalityNamingSettingDefinitions declares every environment variable

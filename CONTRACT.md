@@ -307,15 +307,17 @@ already named is a 409: a suggestion never renames. `POST
 Raw fixes, possibly millions; no public ids. `timestamp`, `latitude`,
 `longitude`, `accuracy_meters` (nullable), `source` (`point_sources`:
 `google_records`, `google_timeline_raw`, `google_timeline_path`,
-`google_semantic_path`, `photo`), `source_ref` (a photo id for `photo`, else
-`""`), `import_id`. A second copy of a fix from the same source is a no-op; a
+`google_semantic_path`, `photo`, `google_activity`, `google_photos_sidecar`),
+`source_ref` (a photo id for `photo` and `google_photos_sidecar`, an
+activity-store activity id for `google_activity`, else `""`), `import_id`. A second copy of a fix from the same source is a no-op; a
 point with a `source_ref` replaces an earlier one with the same source and
 `source_ref`.
 
 ### `imports`
 
 `id` (`import_000001`), `kind` (`import_kinds`: `google_timeline`,
-`google_records`, `google_semantic`, `photo_store`), `sha256` (of the file;
+`google_records`, `google_semantic`, `photo_store`, `activity_store`,
+`google_photos_sidecars`), `sha256` (of the file;
 unique), `source_machine`, `source_path`, `imported_at`, `finished_at` (0
 while sending), `counts` (`points_added`, `points_unchanged`,
 `places_created`, `places_updated`, `visits_created`, `visits_updated`,
@@ -444,3 +446,23 @@ each into a point, source `photo`, `source_ref` the photo id. Only photos
 dated by a trusted source are read: a photo dated when it was sent or posted
 was taken somewhere earlier. The import's hash is that of the points it
 would write, so running it again with nothing new changes nothing.
+
+`~/bin/location-import-activity [-bases "From your device"] [-dry-run]` reads
+every activity-store activity (`GET /activities`, paged; there is no filter
+for coordinates) and makes each with `latitude` and `longitude` into a point,
+source `google_activity`, `source_ref` the activity id, at `occurred_at`, with
+no accuracy (activity-store keeps none). Only coordinates whose Locations line
+(the first that gives coordinates, the one activity-store took them from) has
+a basis in `-bases` are read: `From your places (Home)` is the saved address
+and `Based on your past activity` a guess, not where the user was then.
+
+`~/bin/location-import-photo-sidecars -dir <dir> [-date-sources exif,filename]
+[-dry-run]` reads every `sidecars.jsonl` under `<dir>`: one Google Takeout
+photo sidecar per line, `{sha256, geoData:{latitude, longitude, …}, …}`, the
+hash being the photo file's. A `geoData` of 0, 0 is no location. Each photo is
+found in photo-store by `GET /photos?sha256=`; one photo-store already has GPS
+for (a `photo` point), one not there, and one not dated by a trusted source
+are left out and counted. The rest become points, source
+`google_photos_sidecar`, `source_ref` the photo id, at the photo's
+`taken_at`, with no accuracy. Both imports are found again by the hash of the
+points they would write.

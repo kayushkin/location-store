@@ -182,11 +182,19 @@ const (
 	PointSourceGoogleTimelinePath = "google_timeline_path" // Timeline.json timelinePath points
 	PointSourceGoogleSemanticPath = "google_semantic_path" // legacy Semantic Location History simplifiedRawPath points
 	PointSourcePhoto              = "photo"                // a photo's GPS, from photo-store; source_ref is the photo id
+	// PointSourceGoogleActivity is where the user's device was when they did
+	// something Google recorded (a search, a Maps lookup), from
+	// activity-store; source_ref is the activity id.
+	PointSourceGoogleActivity = "google_activity"
+	// PointSourceGooglePhotosSidecar is the location Google Photos kept for a
+	// photo whose file has no GPS, from the photo's Takeout sidecar
+	// (geoData); source_ref is the photo-store photo id.
+	PointSourceGooglePhotosSidecar = "google_photos_sidecar"
 )
 
 // PointSources is every source a point can have.
 var PointSources = []string{PointSourceGoogleRecords, PointSourceGoogleTimelineRaw, PointSourceGoogleTimelinePath,
-	PointSourceGoogleSemanticPath, PointSourcePhoto}
+	PointSourceGoogleSemanticPath, PointSourcePhoto, PointSourceGoogleActivity, PointSourceGooglePhotosSidecar}
 
 // What kind of file an import read.
 const (
@@ -194,10 +202,17 @@ const (
 	ImportKindGoogleRecords  = "google_records"  // legacy Takeout Records.json
 	ImportKindGoogleSemantic = "google_semantic" // one legacy Semantic Location History month file
 	ImportKindPhotoStore     = "photo_store"     // photos with GPS, read from photo-store
+	// ImportKindActivityStore is activities with coordinates, read from
+	// activity-store.
+	ImportKindActivityStore = "activity_store"
+	// ImportKindGooglePhotosSidecars is Google Takeout photo sidecars whose
+	// geoData places a photo that photo-store has no GPS for.
+	ImportKindGooglePhotosSidecars = "google_photos_sidecars"
 )
 
 // ImportKinds is every kind an import can have.
-var ImportKinds = []string{ImportKindGoogleTimeline, ImportKindGoogleRecords, ImportKindGoogleSemantic, ImportKindPhotoStore}
+var ImportKinds = []string{ImportKindGoogleTimeline, ImportKindGoogleRecords, ImportKindGoogleSemantic, ImportKindPhotoStore,
+	ImportKindActivityStore, ImportKindGooglePhotosSidecars}
 
 // Vocabularies is the answer to GET /vocabularies.
 type Vocabularies struct {
