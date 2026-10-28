@@ -10,13 +10,13 @@
 // the hash (GET /photos?sha256=), and is left out when photo-store already
 // has GPS for it (location-import-photos makes that point), when it is not
 // in photo-store, or when its date is not trusted to say when it was taken
-// (-date-sources, default exif and filename, as location-import-photos).
+// (-date-sources, default exif, filename and google_photos, as location-import-photos).
 // Google keeps no accuracy for geoData, so the point has none.
 //
 // The import is found again by the hash of the points it would write, so
 // running it again with nothing new changes nothing.
 //
-//	location-import-photo-sidecars -dir <directory> [-date-sources exif,filename] [-dry-run]
+//	location-import-photo-sidecars -dir <directory> [-date-sources exif,filename,google_photos] [-dry-run]
 package main
 
 import (
@@ -58,7 +58,7 @@ type sidecar struct {
 
 func main() {
 	directory := flag.String("dir", "", "the directory whose every "+SidecarFileName+" is read, at any depth")
-	dateSourcesFlag := flag.String("date-sources", photostore.DateFromExif+","+photostore.DateFromFilename,
+	dateSourcesFlag := flag.String("date-sources", photostore.DateFromExif+","+photostore.DateFromFilename+","+photostore.DateFromGooglePhotos,
 		"the photo date sources trusted to say when a photo was taken, comma-separated: "+strings.Join(photostore.DateSources, ", "))
 	dryRun := flag.Bool("dry-run", false, "read and count, post nothing")
 	flag.Parse()

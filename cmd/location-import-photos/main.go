@@ -1,14 +1,14 @@
 // Command location-import-photos makes each photo in photo-store that has GPS
 // and a date into a location point: source photo, source_ref the photo's id.
 // Only photos whose date can be trusted to be when they were taken are read
-// (-date-sources, default exif and filename): a photo dated when it was sent
+// (-date-sources, default exif, filename and google_photos): a photo dated when it was sent
 // in a chat or posted online was taken somewhere earlier.
 //
 // The import is found again by the hash of the points it would write, so
 // running it again with nothing new in photo-store changes nothing. A photo
 // whose GPS or date changed moves its point.
 //
-//	location-import-photos [-date-sources exif,filename] [-dry-run]
+//	location-import-photos [-date-sources exif,filename,google_photos] [-dry-run]
 package main
 
 import (
@@ -36,7 +36,7 @@ import (
 const pageSize = 1000
 
 func main() {
-	dateSourcesFlag := flag.String("date-sources", photostore.DateFromExif+","+photostore.DateFromFilename,
+	dateSourcesFlag := flag.String("date-sources", photostore.DateFromExif+","+photostore.DateFromFilename+","+photostore.DateFromGooglePhotos,
 		"the photo date sources trusted to say when a photo was taken, comma-separated: "+strings.Join(photostore.DateSources, ", "))
 	dryRun := flag.Bool("dry-run", false, "read and count, post nothing")
 	flag.Parse()

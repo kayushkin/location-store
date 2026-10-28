@@ -440,7 +440,7 @@ Points are not reconciled: a raw fix is a fact whichever export carried it.
 The iPhone export (a top-level JSON array) is refused. Records with no
 readable time or place are left out and counted in the command's output.
 
-`~/bin/location-import-photos [-date-sources exif,filename] [-dry-run]` reads
+`~/bin/location-import-photos [-date-sources exif,filename,google_photos] [-dry-run]` reads
 photo-store's photos with GPS (`GET /photos?has_gps=true`, paged) and makes
 each into a point, source `photo`, `source_ref` the photo id. Only photos
 dated by a trusted source are read: a photo dated when it was sent or posted
@@ -456,7 +456,7 @@ no accuracy (activity-store keeps none). Only coordinates whose Locations line
 a basis in `-bases` are read: `From your places (Home)` is the saved address
 and `Based on your past activity` a guess, not where the user was then.
 
-`~/bin/location-import-photo-sidecars -dir <dir> [-date-sources exif,filename]
+`~/bin/location-import-photo-sidecars -dir <dir> [-date-sources exif,filename,google_photos]
 [-dry-run]` reads every `sidecars.jsonl` under `<dir>`: one Google Takeout
 photo sidecar per line, `{sha256, geoData:{latitude, longitude, …}, …}`, the
 hash being the photo file's. A `geoData` of 0, 0 is no location. Each photo is
