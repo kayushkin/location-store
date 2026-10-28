@@ -16,3 +16,5 @@ packages:
       - "localities.go"
       - "snapshots.go"
       - "calendar.go"
+      - "calendar_series.go"
+      - "place_suggestions.go"

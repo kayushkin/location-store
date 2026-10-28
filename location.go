@@ -673,5 +673,235 @@ type CalendarMatching struct {
 	// Actions counts the links by action.
 	Actions map[string]int             `json:"actions"`
 	Links   []PlannedCalendarEventLink `json:"links"`
-	Notes   []string                   `json:"notes"`
+	// SeriesPlaces is what the run found for each recurring series with no
+	// location: the spot the user was at for most of its times out, and
+	// whether that was enough to link.
+	SeriesPlaces []CalendarSeriesPlace `json:"series_places"`
+	Notes        []string              `json:"notes"`
+}
+
+// CalendarSeriesPlace is where a recurring series with no location seems to
+// be held: of the times of the series the user was out (at a place not home,
+// and not away on a journey), how many found them at one spot. Served by GET
+// /calendar-series-places; location-match-calendar rewrites it each run that
+// reads the series.
+type CalendarSeriesPlace struct {
+	// ID is calendar_series_place_000001.
+	ID string `json:"id"`
+	// CalendarID and RecurringEventID are Google's ids for the series: what
+	// the row is found again by.
+	CalendarID       string `json:"calendar_id"`
+	RecurringEventID string `json:"recurring_event_id"`
+	// Summary is the series' as last read, for display only.
+	Summary string `json:"summary"`
+	// PlaceID is the place of the leading spot, nil when the user was never
+	// out at its times; PlaceName is read with it, for display.
+	PlaceID   *string `json:"place_id"`
+	PlaceName string  `json:"place_name"`
+	// SpotPlaceIDs are the places within reach of PlaceID that count as the
+	// same spot: two Google place ids for one building.
+	SpotPlaceIDs []string `json:"spot_place_ids"`
+	// Instances is how many timed times of the series the window held;
+	// InstancesOut, at how many of them the user was out; InstancesAtPlace,
+	// how many of those found them at the spot.
+	Instances        int `json:"instances"`
+	InstancesOut     int `json:"instances_out"`
+	InstancesAtPlace int `json:"instances_at_place"`
+	// Agreement is InstancesAtPlace / InstancesOut.
+	Agreement float64 `json:"agreement"`
+	// Confidence is what the series' links carry; 0 unless Outcome is linked.
+	Confidence float64 `json:"confidence"`
+	// Outcome is one of GET /vocabularies series_outcomes.
+	Outcome         string `json:"outcome"`
+	FirstInstanceAt int64  `json:"first_instance_at"`
+	LastInstanceAt  int64  `json:"last_instance_at"`
+	// WindowFrom and WindowTo are the window of the run that wrote it.
+	WindowFrom int64  `json:"window_from"`
+	WindowTo   int64  `json:"window_to"`
+	MatchedBy  string `json:"matched_by"`
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
+}
+
+// PlaceVisitPattern is when the user goes to a place: how often, how long,
+// and the weekday and hour they usually arrive, in the place's local time.
+type PlaceVisitPattern struct {
+	Visits int `json:"visits"`
+	// Days is how many local days hold a visit.
+	Days  int     `json:"days"`
+	Hours float64 `json:"hours"`
+	// FirstVisitAt and LastVisitAt are the first visit's start and the last
+	// one's end.
+	FirstVisitAt int64 `json:"first_visit_at"`
+	LastVisitAt  int64 `json:"last_visit_at"`
+	// TimeZone is the zone the weekdays and hours are read in: the place's
+	// town's, else UTC.
+	TimeZone string `json:"time_zone"`
+	// UsualWeekday is the weekday most visits began on (Monday), and
+	// UsualWeekdayVisits how many did.
+	UsualWeekday       string `json:"usual_weekday"`
+	UsualWeekdayVisits int    `json:"usual_weekday_visits"`
+	// UsualArrivalHour is the local hour most visits began in (0..23).
+	UsualArrivalHour       int `json:"usual_arrival_hour"`
+	UsualArrivalHourVisits int `json:"usual_arrival_hour_visits"`
+	// ArrivalsByWeekday counts visits by the weekday they began, Sunday
+	// first; ArrivalsByHour by the local hour.
+	ArrivalsByWeekday []int `json:"arrivals_by_weekday"`
+	ArrivalsByHour    []int `json:"arrivals_by_hour"`
+	// MedianVisitMinutes is how long a visit there usually lasts.
+	MedianVisitMinutes float64 `json:"median_visit_minutes"`
+}
+
+// UnnamedPlace is a place with no name the user has been to, and when: GET
+// /unnamed-places ranks them by days visited, home left out.
+type UnnamedPlace struct {
+	Place   Place             `json:"place"`
+	Pattern PlaceVisitPattern `json:"pattern"`
+}
+
+// OSMFeature is a named point of interest from an OpenStreetMap extract,
+// read offline, near a place.
+type OSMFeature struct {
+	// OSMRef is OpenStreetMap's id for it: node/123, way/456.
+	OSMRef    string            `json:"osm_ref"`
+	Name      string            `json:"name"`
+	Tags      map[string]string `json:"tags"`
+	Latitude  float64           `json:"latitude"`
+	Longitude float64           `json:"longitude"`
+	// Address is the feature's own addr:* tags written out, "" when it has
+	// none.
+	Address        string  `json:"address"`
+	DistanceMeters float64 `json:"distance_meters"`
+}
+
+// OSMAddress is an address from an OpenStreetMap extract: a node or building
+// with addr:housenumber and addr:street.
+type OSMAddress struct {
+	OSMRef         string  `json:"osm_ref"`
+	Address        string  `json:"address"`
+	Latitude       float64 `json:"latitude"`
+	Longitude      float64 `json:"longitude"`
+	DistanceMeters float64 `json:"distance_meters"`
+}
+
+// GeocodedCalendarEvent is a calendar event whose location's street address
+// was found in an OpenStreetMap extract, offline, near a place.
+type GeocodedCalendarEvent struct {
+	CalendarID string `json:"calendar_id"`
+	EventID    string `json:"event_id"`
+	// RecurringEventID is the series, "" for a single event.
+	RecurringEventID string `json:"recurring_event_id"`
+	Summary          string `json:"summary"`
+	Location         string `json:"location"`
+	StartedAt        int64  `json:"started_at"`
+	EndedAt          int64  `json:"ended_at"`
+	// Venue is the part of the location before its street address, "" when
+	// the location starts with the address.
+	Venue string `json:"venue"`
+	// Address is the OpenStreetMap address the location matched.
+	Address        OSMAddress `json:"address"`
+	DistanceMeters float64    `json:"distance_meters"`
+	// VisitOverlapped says a visit at the place overlapped the event: the
+	// user was there while it ran. Set by location-store, not the sender.
+	VisitOverlapped bool `json:"visit_overlapped"`
+}
+
+// PlaceProposalEvidence is what the suggester found near one unnamed place.
+type PlaceProposalEvidence struct {
+	PlaceID string `json:"place_id"`
+	// NearbyPOIs are named features within reach, nearest first.
+	NearbyPOIs []OSMFeature `json:"nearby_pois"`
+	// NearestAddress is the nearest address within reach; nil when none.
+	NearestAddress *OSMAddress `json:"nearest_address"`
+	// CalendarEvents are events whose address lies within reach.
+	CalendarEvents []GeocodedCalendarEvent `json:"calendar_events"`
+}
+
+// PlaceSuggestionProposals is the body of POST /place-suggestions/proposals:
+// what location-suggest-place-names found offline for each unnamed place.
+// The store decides the suggestions from it.
+type PlaceSuggestionProposals struct {
+	DryRun bool `json:"dry_run"`
+	// ProposedBy is who found it: location-suggest-place-names.
+	ProposedBy string `json:"proposed_by"`
+	// Sources names the data read: each extract's file name and date.
+	Sources []string                `json:"sources"`
+	Places  []PlaceProposalEvidence `json:"places"`
+}
+
+// PlaceSuggestionEvidence is everything a suggestion rests on: the place's
+// visit pattern and all that was found near it, so a person deciding sees
+// the rivals too.
+type PlaceSuggestionEvidence struct {
+	Pattern        PlaceVisitPattern       `json:"pattern"`
+	NearbyPOIs     []OSMFeature            `json:"nearby_pois"`
+	NearestAddress *OSMAddress             `json:"nearest_address"`
+	CalendarEvents []GeocodedCalendarEvent `json:"calendar_events"`
+	// POIsWithin25Meters counts the named features within 25 m: one alone
+	// is a strong suggestion, several are rivals.
+	POIsWithin25Meters int      `json:"pois_within_25_meters"`
+	Sources            []string `json:"sources"`
+}
+
+// PlaceSuggestion is one name a place might have, never applied until a
+// person or agent accepts it.
+type PlaceSuggestion struct {
+	// ID is place_suggestion_000001.
+	ID      string `json:"id"`
+	PlaceID string `json:"place_id"`
+	// Source is one of GET /vocabularies place_suggestion_sources; SourceRef
+	// is the OpenStreetMap id it came from (node/123), or for a calendar
+	// address, calendar:<the address's OpenStreetMap id>.
+	Source    string `json:"source"`
+	SourceRef string `json:"source_ref"`
+	// Name, Address and Kind are what accepting it writes onto the place
+	// (each only where the place has none); Kind "" changes nothing.
+	Name           string  `json:"name"`
+	Address        string  `json:"address"`
+	Kind           string  `json:"kind"`
+	DistanceMeters float64 `json:"distance_meters"`
+	// Reason says, in words, why it was suggested.
+	Reason   string                  `json:"reason"`
+	Evidence PlaceSuggestionEvidence `json:"evidence"`
+	// Status is proposed, accepted or rejected.
+	Status     string `json:"status"`
+	ProposedBy string `json:"proposed_by"`
+	// DecidedBy, DecidedAt and DecisionNote say who accepted or rejected it
+	// and why.
+	DecidedBy    string `json:"decided_by"`
+	DecidedAt    int64  `json:"decided_at"`
+	DecisionNote string `json:"decision_note"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+	// DeletedAt is set when a later run no longer found a proposed one.
+	DeletedAt int64 `json:"deleted_at"`
+}
+
+// PlaceSuggestionDecision is the body of POST /place-suggestions/{id}/accept
+// and /reject. On accept, Name, Address and Kind replace the suggestion's
+// own when set: a cleaner spelling of the same thing.
+type PlaceSuggestionDecision struct {
+	DecidedBy string `json:"decided_by"`
+	Note      string `json:"note"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	Kind      string `json:"kind"`
+}
+
+// PlaceSuggestionsForPlace is one place's suggestions, as POST
+// /place-suggestions/proposals answers them.
+type PlaceSuggestionsForPlace struct {
+	Place       Place             `json:"place"`
+	Suggestions []PlaceSuggestion `json:"suggestions"`
+}
+
+// PlaceSuggesting answers POST /place-suggestions/proposals.
+type PlaceSuggesting struct {
+	DryRun bool `json:"dry_run"`
+	// Places are the places sent, with their live suggestions, most days
+	// visited first.
+	Places []PlaceSuggestionsForPlace `json:"places"`
+	// Actions counts the suggestions by what the run did: create, update,
+	// unchanged, kept_decided (accepted or rejected before), delete.
+	Actions map[string]int `json:"actions"`
 }

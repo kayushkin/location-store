@@ -15,7 +15,8 @@ directory 0700, file 0600). Timestamps are epoch seconds.
 | `LOCATION_STORE_URL` | `http://127.0.0.1:8333` | the commands: where location-store answers |
 | `PHOTO_STORE_URL` | `http://127.0.0.1:8329` | `location-import-photos`: where photo-store answers |
 | `DASH_URL` | `http://localhost:8101` | `location-match-calendar`: where dash answers, the one way to Google Calendar |
-| `DASH_TOKEN` | (secret, required) | `location-match-calendar`: dash's bearer token, sent only to `DASH_URL`, never printed. The service itself never holds it |
+| `DASH_TOKEN` | (secret, required) | `location-match-calendar` and `location-suggest-place-names`: dash's bearer token, sent only to `DASH_URL`, never printed. The service itself never holds it |
+| `LOCATION_STORE_OSM_EXTRACTS` | `~/.cache/osm` | `location-suggest-place-names`: OpenStreetMap extracts (`.osm.pbf`), comma-separated files or directories of them. Never set it in the service's own environment |
 
 ## Records
 
@@ -211,14 +212,95 @@ names on disk. Each event is decided by the first rule that applies:
      80 km from home, while it ran (`town_journey`, 0.5).
 6. **No location.** A single event with no location (or only a web
    address), on a calendar whose `accessRole` is `owner` or `writer`, links
-   to the journey it falls in (`journey_time`, 0.4). A recurring one never
-   does, and a calendar the user only reads holds other people's days off.
+   to the journey it falls in (`journey_time`, 0.4); a calendar the user only
+   reads holds other people's days off. A recurring one never links by time
+   alone, only by the spot its series is held (next).
+
+### Recurring series with no location
+
+A weekly class with no location says nothing by itself, but the times the
+user went agree on one spot. For each recurring series (calendar id and
+`recurringEventId`; never the summary) of timed events with no location:
+
+- A time finds the user **out** when a visit not at home (a `home` place,
+  or within 300 m of the home period in force) and not away (more than
+  80 km from home) began no later than 45 minutes after its start and spans
+  enough of it (half, or half an hour). A visit that began hours before (a
+  night somewhere, a day at work) shows the user was there instead.
+- The user **arrived for** a time at a visit that began within 45 minutes of
+  its start, either way. A **spot** is a place and every place within 150 m
+  of it: one building often has two Google place ids. Spots holding a
+  `home` or `work` place are never one.
+- The spot arrived at for the most times leads (ties: the place arrived at
+  itself most often). The series is held there when that is at least 3 times
+  and at least 60% of the times out. Each time the user arrived there links
+  to that visit (`unlocated_series_place`, confidence 0.4 + 0.4 × the share:
+  0.64 to 0.8); the other times link nothing.
+
+Every series read is recorded, linked or not, in `calendar_series_places`
+(`calendar_series_place_000001`), one row per series rewritten by each run
+that reads it: `place_id` (the leading spot's place, null when none),
+`place_name`, `spot_place_ids`, `instances` (times in the window),
+`instances_out`, `instances_at_place`, `agreement`, `confidence` (0 unless
+linked), `outcome` (`series_outcomes`: `linked`, `below_agreement`,
+`too_few_times`, `never_out`), `first_instance_at`, `last_instance_at`, and
+the run's `window_from` and `window_to`. A dry run writes none; `POST
+/calendar/match` answers them as `series_places`.
 
 A run settles only its own links of the calendars it was sent, for events in
 its window: it makes new ones, rewrites changed ones, deletes ones it no
 longer finds (an event moved or removed), and restores ones it deleted
 itself. A link made by hand is left as it is, and one a person deleted stays
 deleted. No run writes a name, title or description.
+
+### Place name suggestions
+
+`location-suggest-place-names [-extract <file or directory>]… [-limit 30]
+[-from YYYY-MM-DD] [-to YYYY-MM-DD] [-dry-run]` suggests names for the
+places the user goes to that have none, offline:
+
+1. `GET /unnamed-places?limit=` ranks the live places with no name the user
+   visited, most days first, home (kind `home`, or a home period's place)
+   left out, each with its visit pattern: visits, days, hours, median visit
+   length, first and last visit, and arrivals by weekday and local hour (the
+   place's town's zone).
+2. It reads the OpenStreetMap extracts (`LOCATION_STORE_OSM_EXTRACTS`, or
+   `-extract`; Geofabrik's regional downloads, several at once): named
+   features with a type tag (`amenity`, `shop`, `leisure`, `tourism`,
+   `office`, `craft`, `healthcare`, `sport`, `club`, `historic`, `building`)
+   and every `addr:housenumber` + `addr:street`, ways placed at the mean of
+   their nodes. Relations are not read.
+3. It reads every calendar through dash and finds each event whose location
+   holds a street address in the extracts (`12 N Example St` matches `12
+   North Example Street`; a town named after it narrows two towns' matches,
+   and matches more than 150 m apart give none).
+4. For each place it sends the 10 nearest features within 150 m, the
+   nearest address within 150 m and the events whose address lies within
+   150 m to `POST /place-suggestions/proposals`, which decides.
+
+No coordinate or address ever goes to an online service. The store makes a
+`place_suggestions` row (`place_suggestion_000001`) for each feature within
+100 m (the 5 nearest; `osm_poi`, kind `venue`), each calendar address
+(`calendar_address`, named by the most common text before the street
+address, and saying how many of its events a visit at the place overlapped)
+and the nearest address within 60 m (`osm_address`, named by the address,
+kind left alone). Each carries `reason` and `evidence`: the place's visit
+pattern, everything found near it, and `pois_within_25_meters`, so a
+decider sees the rivals. A run rewrites only `proposed` suggestions, keyed by
+place, source and `source_ref` (`node/123`, `way/456`,
+`calendar:node/789`); deletes proposed ones it no longer finds, and those of
+a place someone has since named; and never touches one `accepted` or
+`rejected`. Proposing for a named or deleted place is a 409.
+
+**Nothing is named by a run.** `POST /place-suggestions/{id}/accept
+{decided_by, note, name?, address?, kind?}` names the place (the optional
+fields replace the suggestion's own), sets its address only when it has
+none and its kind only when it is `other`, writes a description naming the
+suggestion and its reason (with `described_by` the decider) when it has
+none, copies the place to `revisions` first (reason `suggestion`), and
+rejects the place's other proposed suggestions, naming this one. A place
+already named is a 409: a suggestion never renames. `POST
+/place-suggestions/{id}/reject {decided_by, note}` records a wrong one.
 
 ### `points`
 
@@ -251,7 +333,7 @@ A `PATCH` with an unknown key, or `null` on a field that is not a link, is a
 |---|---|---|
 | `GET` | `/health` | `{status, counts:{places, visits, trips, points, imports, deleted, revisions}}` |
 | `GET` | `/settings` | the declared settings |
-| `GET` | `/vocabularies` | `{place_kinds, trip_kinds, trip_modes, record_sources, point_sources, import_kinds}` |
+| `GET` | `/vocabularies` | `{place_kinds, trip_kinds, trip_modes, record_sources, point_sources, import_kinds, calendar_match_rules, calendar_link_target_types, series_outcomes, place_suggestion_statuses, place_suggestion_sources}` |
 | `GET` | `/places` | oldest first. `?q=` (every word in name, address, description or tags), `?kind=`, `?tag=`, `?google_place_id=` |
 | `POST` | `/places` | `{name, latitude, longitude, radius_meters, address, kind, description, described_by, tags}`; name, latitude, longitude, kind required. **201** |
 | `GET` | `/places/{id}` | deleted is 404 unless `?include_deleted=true` |
@@ -275,11 +357,19 @@ A `PATCH` with an unknown key, or `null` on a field that is not a link, is a
 | `POST` | `/journeys/group` | `{dry_run, away_distance_meters, minimum_away_seconds, home_change_days, return_break_seconds}`, 0 = default. Answers `{dry_run, request, home_periods, journeys:[{action, trip_id, title, started_at, ended_at, mode, nights, farthest_meters, child_trip_ids, children_attached, children_detached, children_kept_elsewhere, notes}], deleted_journey_ids, home_places_marked, notes}`; `action` is `create`, `update`, `unchanged` or `skip`. A dry run writes nothing and answers `trip_id` `""` for a journey it would create. **409** without the GeoNames files |
 | `GET` | `/journeys` | trips of kind `journey`, earliest first; takes `GET /trips`' time range and paging |
 | `GET` | `/journeys/{id}` | `{trip, children, visits, localities:[{locality, seconds, arrived_at}], calendar_event_links}`: the trip, the trips that make it up, the visits inside its span, the towns those visits were in, in order of arrival, and the live calendar event links to any of them |
-| `POST` | `/calendar/match` | `{dry_run, from, to, calendars:[{calendar:{id, summary, summaryOverride, accessRole, timeZone}, events:[{id, status, eventType, summary, location, recurringEventId, hangoutLink, start:{dateTime, date, timeZone}, end}]}]}`, Google's own field names. Answers `{dry_run, from, to, events_read, links_by_rule, unlinked, actions, links:[{action, link}], notes}`; `action` is `create`, `update`, `unchanged`, `restore`, `delete` or `kept_deleted`. A dry run writes nothing and answers `id` `""` for a link it would make. **409** without the GeoNames files |
+| `POST` | `/calendar/match` | `{dry_run, from, to, calendars:[{calendar:{id, summary, summaryOverride, accessRole, timeZone}, events:[{id, status, eventType, summary, location, recurringEventId, hangoutLink, start:{dateTime, date, timeZone}, end}]}]}`, Google's own field names. Answers `{dry_run, from, to, events_read, links_by_rule, unlinked, actions, links:[{action, link}], series_places, notes}`; `action` is `create`, `update`, `unchanged`, `restore`, `delete` or `kept_deleted`. A dry run writes nothing and answers `id` `""` for a link it would make. **409** without the GeoNames files |
 | `GET` | `/calendar-event-links` | earliest event first. `?from=&to=`, `?visit_id=`, `?trip_id=`, `?place_id=` (links to the place and to its visits), `?calendar_id=`, `?event_id=`, `?rule=`, `?matched_by=`, `?include_deleted=true` |
 | `POST` | `/calendar-event-links` | `{calendar_id, event_id, recurring_event_id, summary, location, started_at, ended_at, all_day, target_type, target_id, reason}`: a link by hand (`rule` and `matched_by` `hand`, confidence 1); one already there for the same event and record becomes this. **201** |
 | `GET` | `/calendar-event-links/{id}` | |
 | `DELETE` | `/calendar-event-links/{id}` | soft, **204**, `deleted_by` `hand`: no run makes it again |
+| `GET` | `/calendar-series-places` | most times at the spot first. `?place_id=` (series whose spot holds it), `?calendar_id=`, `?outcome=` |
+| `GET` | `/calendar-series-places/{id}` | |
+| `GET` | `/unnamed-places` | `[{place, pattern}]`, most days visited first, home left out; `?limit=&offset=` |
+| `POST` | `/place-suggestions/proposals` | `{dry_run, proposed_by, sources, places:[{place_id, nearby_pois, nearest_address, calendar_events}]}` (`PlaceSuggestionProposals` in `location.go`). Answers `{dry_run, places:[{place, suggestions}], actions}`; `actions` counts `create`, `update`, `unchanged`, `kept_decided`, `delete`. **409** for a named or deleted place |
+| `GET` | `/place-suggestions` | oldest first. `?place_id=`, `?status=`, `?source=`, `?include_deleted=true` |
+| `GET` | `/place-suggestions/{id}` | |
+| `POST` | `/place-suggestions/{id}/accept` | `{decided_by, note, name, address, kind}`, `decided_by` required: names the place (see *Place name suggestions*). **409** unless proposed and the place unnamed |
+| `POST` | `/place-suggestions/{id}/reject` | `{decided_by, note}`. **409** unless proposed |
 | `GET` | `/timeline` | visits and trips overlapping `?from=&to=`, in start order: `[{kind:"visit"\|"trip", visit, trip}]`. Trips that have children are left out unless `?include_parent_trips=true`. `?source=`; `?limit=` default 500, max 5000 |
 | `GET` | `/points` | earliest first. `?from=` (inclusive) `&to=` (exclusive) on `timestamp`, `?source=`, `?source_ref=`; `?limit=` default 1000, max 10000 |
 | `GET` | `/imports` | newest first |

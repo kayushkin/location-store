@@ -55,6 +55,15 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	mux.HandleFunc("POST /calendar-event-links", h.createCalendarEventLink)
 	mux.HandleFunc("GET /calendar-event-links/{id}", h.getCalendarEventLink)
 	mux.HandleFunc("DELETE /calendar-event-links/{id}", h.deleteCalendarEventLink)
+	mux.HandleFunc("GET /calendar-series-places", h.listCalendarSeriesPlaces)
+	mux.HandleFunc("GET /calendar-series-places/{id}", h.getCalendarSeriesPlace)
+
+	mux.HandleFunc("GET /unnamed-places", h.listUnnamedPlaces)
+	mux.HandleFunc("POST /place-suggestions/proposals", h.proposePlaceSuggestions)
+	mux.HandleFunc("GET /place-suggestions", h.listPlaceSuggestions)
+	mux.HandleFunc("GET /place-suggestions/{id}", h.getPlaceSuggestion)
+	mux.HandleFunc("POST /place-suggestions/{id}/accept", h.decidePlaceSuggestion(true))
+	mux.HandleFunc("POST /place-suggestions/{id}/reject", h.decidePlaceSuggestion(false))
 
 	mux.HandleFunc("GET /timeline", h.timeline)
 	mux.HandleFunc("GET /points", h.listPoints)
@@ -80,7 +89,8 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) vocabularies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Vocabularies{PlaceKinds: PlaceKinds, TripKinds: TripKinds, TripModes: TripModes, RecordSources: RecordSources,
-		PointSources: PointSources, ImportKinds: ImportKinds, CalendarMatchRules: CalendarMatchRules, CalendarLinkTargetTypes: CalendarLinkTargetTypes})
+		PointSources: PointSources, ImportKinds: ImportKinds, CalendarMatchRules: CalendarMatchRules, CalendarLinkTargetTypes: CalendarLinkTargetTypes,
+		SeriesOutcomes: SeriesOutcomes, PlaceSuggestionStatuses: PlaceSuggestionStatuses, PlaceSuggestionSources: PlaceSuggestionSources})
 }
 
 // ---- query parameters ----
@@ -481,6 +491,96 @@ func (h *handler) listCalendarEventLinks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, links)
+}
+
+func (h *handler) listCalendarSeriesPlaces(w http.ResponseWriter, r *http.Request) {
+	q := &queryReader{w: w, r: r}
+	filter := CalendarSeriesPlaceFilter{PlaceID: q.text("place_id"), CalendarID: q.text("calendar_id"), Outcome: q.text("outcome"),
+		Limit: int(q.integer("limit")), Offset: int(q.integer("offset"))}
+	if q.failed {
+		return
+	}
+	rows, err := h.s.ListCalendarSeriesPlaces(filter)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (h *handler) getCalendarSeriesPlace(w http.ResponseWriter, r *http.Request) {
+	row, err := h.s.GetCalendarSeriesPlace(r.PathValue("id"))
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, row)
+}
+
+func (h *handler) listUnnamedPlaces(w http.ResponseWriter, r *http.Request) {
+	q := &queryReader{w: w, r: r}
+	limit, offset := int(q.integer("limit")), int(q.integer("offset"))
+	if q.failed {
+		return
+	}
+	places, err := h.s.ListUnnamedPlaces(limit, offset)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, places)
+}
+
+func (h *handler) proposePlaceSuggestions(w http.ResponseWriter, r *http.Request) {
+	var request PlaceSuggestionProposals
+	if !decodeBody(w, r, 64<<20, &request) {
+		return
+	}
+	answer, err := h.s.ProposePlaceSuggestions(request)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
+func (h *handler) listPlaceSuggestions(w http.ResponseWriter, r *http.Request) {
+	q := &queryReader{w: w, r: r}
+	filter := PlaceSuggestionFilter{PlaceID: q.text("place_id"), Status: q.text("status"), Source: q.text("source"),
+		IncludeDeleted: q.boolean("include_deleted"), Limit: int(q.integer("limit")), Offset: int(q.integer("offset"))}
+	if q.failed {
+		return
+	}
+	suggestions, err := h.s.ListPlaceSuggestions(filter)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, suggestions)
+}
+
+func (h *handler) getPlaceSuggestion(w http.ResponseWriter, r *http.Request) {
+	suggestion, err := h.s.GetPlaceSuggestion(r.PathValue("id"))
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, suggestion)
+}
+
+func (h *handler) decidePlaceSuggestion(accept bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var decision PlaceSuggestionDecision
+		if !decodeBody(w, r, 1<<20, &decision) {
+			return
+		}
+		decide := h.s.RejectPlaceSuggestion
+		if accept {
+			decide = h.s.AcceptPlaceSuggestion
+		} else if decision.Name != "" || decision.Address != "" || decision.Kind != "" {
+			writeErr(w, http.StatusBadRequest, "reject takes decided_by and note only")
+			return
+		}
+		suggestion, err := decide(r.PathValue("id"), decision)
+		if respondError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, suggestion)
+	}
 }
 
 func (h *handler) createCalendarEventLink(w http.ResponseWriter, r *http.Request) {

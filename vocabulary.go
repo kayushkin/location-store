@@ -93,6 +93,12 @@ const (
 	// location names a town, and at three or more of its times the user was at
 	// the same place in that town, not home.
 	CalendarRuleSeriesPlace = "series_place"
+	// CalendarRuleUnlocatedSeriesPlace: the event is one of a recurring
+	// series with no location, and of the times of the series the user was
+	// out (not home, not away on a journey), most found them at one spot: at
+	// least three times, and at least 60% of them. Times they were elsewhere
+	// link nothing.
+	CalendarRuleUnlocatedSeriesPlace = "unlocated_series_place"
 	// CalendarRuleTownVisit: a single event whose location names a town, and
 	// the user arrived at a place in that town, not home, within an hour of
 	// its start.
@@ -115,8 +121,56 @@ const (
 )
 
 // CalendarMatchRules is every rule a calendar event link can have.
-var CalendarMatchRules = []string{CalendarRulePlace, CalendarRuleSeriesPlace, CalendarRuleTownVisit, CalendarRuleTownJourney,
+var CalendarMatchRules = []string{CalendarRulePlace, CalendarRuleSeriesPlace, CalendarRuleUnlocatedSeriesPlace, CalendarRuleTownVisit, CalendarRuleTownJourney,
 	CalendarRuleFlight, CalendarRuleFlightJourney, CalendarRuleJourneyTime, CalendarRuleHand}
+
+// What an unlocated recurring series came to, as calendar_series_places
+// records it.
+const (
+	// SeriesOutcomeLinked: one spot held enough of the times the user was
+	// out; those times link to the visits there.
+	SeriesOutcomeLinked = "linked"
+	// SeriesOutcomeBelowAgreement: the leading spot held too small a share
+	// of the times the user was out.
+	SeriesOutcomeBelowAgreement = "below_agreement"
+	// SeriesOutcomeTooFewTimes: the user was out at its times, but the
+	// leading spot, if any, held fewer than three of them.
+	SeriesOutcomeTooFewTimes = "too_few_times"
+	// SeriesOutcomeNeverOut: at none of its times was the user out at a
+	// place that could hold it.
+	SeriesOutcomeNeverOut = "never_out"
+)
+
+// SeriesOutcomes is every outcome a calendar series place can have.
+var SeriesOutcomes = []string{SeriesOutcomeLinked, SeriesOutcomeBelowAgreement, SeriesOutcomeTooFewTimes, SeriesOutcomeNeverOut}
+
+// What a place name suggestion is in.
+const (
+	PlaceSuggestionProposed = "proposed"
+	PlaceSuggestionAccepted = "accepted"
+	PlaceSuggestionRejected = "rejected"
+)
+
+// PlaceSuggestionStatuses is every status a place name suggestion can have.
+var PlaceSuggestionStatuses = []string{PlaceSuggestionProposed, PlaceSuggestionAccepted, PlaceSuggestionRejected}
+
+// Where a place name suggestion came from.
+const (
+	// PlaceSuggestionSourcePOI: a named OpenStreetMap feature near the place.
+	PlaceSuggestionSourcePOI = "osm_poi"
+	// PlaceSuggestionSourceAddress: the nearest OpenStreetMap address, for a
+	// place no feature names.
+	PlaceSuggestionSourceAddress = "osm_address"
+	// PlaceSuggestionSourceCalendar: calendar events whose street address,
+	// found in OpenStreetMap, lies at the place.
+	PlaceSuggestionSourceCalendar = "calendar_address"
+)
+
+// PlaceSuggestionSources is every source a place name suggestion can have.
+var PlaceSuggestionSources = []string{PlaceSuggestionSourcePOI, PlaceSuggestionSourceAddress, PlaceSuggestionSourceCalendar}
+
+// SetByPlaceNameSuggesting is location-suggest-place-names.
+const SetByPlaceNameSuggesting = "location-suggest-place-names"
 
 // CalendarLinkTargetTypes is every kind of record a calendar event links to.
 var CalendarLinkTargetTypes = []string{EntityVisit, EntityTrip, EntityPlace}
@@ -157,6 +211,12 @@ type Vocabularies struct {
 	CalendarMatchRules []string `json:"calendar_match_rules"`
 	// CalendarLinkTargetTypes are what a calendar event links to.
 	CalendarLinkTargetTypes []string `json:"calendar_link_target_types"`
+	// SeriesOutcomes are what a recurring series with no location came to.
+	SeriesOutcomes []string `json:"series_outcomes"`
+	// PlaceSuggestionStatuses are the states of a place name suggestion.
+	PlaceSuggestionStatuses []string `json:"place_suggestion_statuses"`
+	// PlaceSuggestionSources are where a place name suggestion came from.
+	PlaceSuggestionSources []string `json:"place_suggestion_sources"`
 }
 
 func knownWord(words []string, word string) bool {

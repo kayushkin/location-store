@@ -12,19 +12,17 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	locationstore "github.com/kayushkin/location-store"
+	"github.com/kayushkin/location-store/internal/dashcalendar"
 	"github.com/kayushkin/location-store/internal/storeclient"
 )
 
@@ -51,13 +49,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("-to: %v", err)
 	}
-	dash := &dashClient{url: strings.TrimRight(settings.String(locationstore.SettingDashURL), "/"),
-		token: settings.String(locationstore.SettingDashToken), http: &http.Client{Timeout: 5 * time.Minute}}
-
-	var listed struct {
-		Items []locationstore.GoogleCalendar `json:"items"`
-	}
-	if err := dash.get("/api/calendar/google/calendars", nil, &listed); err != nil {
+	dash := dashcalendar.New(settings.String(locationstore.SettingDashURL), settings.String(locationstore.SettingDashToken))
+	calendars, err := dash.Calendars()
+	if err != nil {
 		log.Fatal(err)
 	}
 	wanted := map[string]bool{}
@@ -67,21 +61,17 @@ func main() {
 		}
 	}
 	request := locationstore.CalendarMatchRequest{DryRun: *dryRun, From: fromTime.Unix(), To: toTime.Unix()}
-	for _, calendar := range listed.Items {
+	for _, calendar := range calendars {
 		if len(wanted) > 0 && !wanted[calendar.ID] {
 			continue
 		}
 		delete(wanted, calendar.ID)
-		var events struct {
-			Events []locationstore.GoogleCalendarEvent `json:"events"`
+		events, err := dash.Events(calendar, fromTime, toTime)
+		if err != nil {
+			log.Fatal(err)
 		}
-		query := url.Values{"calendarId": {calendar.ID}, "timeMin": {fromTime.Format(time.RFC3339)}, "timeMax": {toTime.Format(time.RFC3339)},
-			"maxResults": {"2500"}}
-		if err := dash.get("/api/calendar/google", query, &events); err != nil {
-			log.Fatalf("calendar %s: %v", calendar.ID, err)
-		}
-		request.Calendars = append(request.Calendars, locationstore.CalendarEvents{Calendar: calendar, Events: events.Events})
-		fmt.Printf("calendar %s (%s, %s): %d events\n", calendar.ID, calendarName(calendar), calendar.AccessRole, len(events.Events))
+		request.Calendars = append(request.Calendars, locationstore.CalendarEvents{Calendar: calendar, Events: events})
+		fmt.Printf("calendar %s (%s, %s): %d events\n", calendar.ID, calendarName(calendar), calendar.AccessRole, len(events))
 	}
 	for id := range wanted {
 		log.Fatalf("-calendar %s: dash lists no such calendar", id)
@@ -112,6 +102,18 @@ func main() {
 			time.Unix(link.StartedAt, 0).UTC().Format("2006-01-02 15:04Z"), link.Summary, link.TargetType, link.TargetID,
 			link.Rule, link.Confidence, link.Reason)
 	}
+	for _, series := range matching.SeriesPlaces {
+		place := "no spot"
+		if series.PlaceID != nil {
+			place = fmt.Sprintf("%s (%s) [%s]", *series.PlaceID, series.PlaceName, strings.Join(series.SpotPlaceIDs, " "))
+		}
+		id := series.ID
+		if id == "" {
+			id = "(dry run)"
+		}
+		fmt.Printf("  series %s %q → %s: %d of %d times out, of %d times; %s, confidence %.2f\n", id, series.Summary, place,
+			series.InstancesAtPlace, series.InstancesOut, series.Instances, series.Outcome, series.Confidence)
+	}
 	for _, note := range matching.Notes {
 		fmt.Printf("note: %s\n", note)
 	}
@@ -138,40 +140,4 @@ func countsLabel(counts map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s %d", key, counts[key]))
 	}
 	return strings.Join(parts, ", ")
-}
-
-// dashClient reads dash's calendar routes with its bearer token, which it
-// sends nowhere else and never prints.
-type dashClient struct {
-	url   string
-	token string
-	http  *http.Client
-}
-
-func (c *dashClient) get(path string, query url.Values, answer any) error {
-	address := c.url + path
-	if len(query) > 0 {
-		address += "?" + query.Encode()
-	}
-	request, err := http.NewRequest(http.MethodGet, address, nil)
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+c.token)
-	response, err := c.http.Do(request)
-	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
-	}
-	defer response.Body.Close()
-	content, err := io.ReadAll(response.Body)
-	if err != nil {
-		return err
-	}
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: dash answered %d: %s", path, response.StatusCode, strings.TrimSpace(string(content)))
-	}
-	if err := json.Unmarshal(content, answer); err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
-	}
-	return nil
 }

@@ -225,9 +225,9 @@ func TestTownsAreReadFromALocationOffline(t *testing.T) {
 	matcher := &calendarMatcher{index: index}
 	for location, want := range map[string]string{
 		"A Venue, 3 Fake Street, Suburbia, 01 12345, XX": "Suburbia",
-		"Room 4 (Fartown, Example Region, XX)":          "Fartown",
-		"Hometown":                                      "", // the first part names the venue, never the town
-		"A Venue, Nowhere":                              "",
+		"Room 4 (Fartown, Example Region, XX)":           "Fartown",
+		"Hometown":                                       "", // the first part names the venue, never the town
+		"A Venue, Nowhere":                               "",
 	} {
 		if _, name := matcher.townsNamedIn(location); name != want {
 			t.Errorf("town of %q = %q, want %q", location, name, want)

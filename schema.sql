@@ -203,3 +203,63 @@ CREATE TABLE IF NOT EXISTS calendar_event_links (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_event_links_identity ON calendar_event_links(calendar_id, event_id, target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_event_links_target ON calendar_event_links(target_id, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_calendar_event_links_time ON calendar_event_links(deleted_at, started_at);
+
+-- What location-match-calendar found for each recurring series with no
+-- location: the spot the user was at for most of its times they were out,
+-- how many times agreed, and whether that was enough to link. One row per
+-- series, rewritten by each run that reads it. place_id is the leading
+-- spot's place even when the outcome is not linked, so a person can see how
+-- near it came.
+CREATE TABLE IF NOT EXISTS calendar_series_places (
+    id                    TEXT PRIMARY KEY,          -- calendar_series_place_000001
+    seq                   INTEGER NOT NULL UNIQUE,
+    calendar_id           TEXT NOT NULL,
+    recurring_event_id    TEXT NOT NULL,
+    summary               TEXT NOT NULL DEFAULT '',  -- for display only
+    place_id              TEXT REFERENCES places(id),
+    spot_place_ids        TEXT NOT NULL DEFAULT '[]',-- JSON array: the places within reach of place_id that count as the same spot
+    instances             INTEGER NOT NULL,          -- timed times of the series in the window read
+    instances_out         INTEGER NOT NULL,          -- of those, times the user was at a place out of home, not away
+    instances_at_place    INTEGER NOT NULL,          -- of those, times at the spot
+    agreement             REAL NOT NULL,             -- instances_at_place / instances_out, 0 when none
+    confidence            REAL NOT NULL,             -- what the links carry; 0 unless linked
+    outcome               TEXT NOT NULL,             -- vocabulary.go SeriesOutcomes
+    first_instance_at     INTEGER NOT NULL,
+    last_instance_at      INTEGER NOT NULL,
+    window_from           INTEGER NOT NULL,          -- the run's window
+    window_to             INTEGER NOT NULL,
+    matched_by            TEXT NOT NULL,             -- location-match-calendar
+    created_at            INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_series_places_series ON calendar_series_places(calendar_id, recurring_event_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_series_places_place ON calendar_series_places(place_id);
+
+-- A name a place might have, found offline by location-suggest-place-names
+-- (an OpenStreetMap feature or address near it, or calendar events at an
+-- address there). Never applied by a run: accepting one through the routes
+-- names the place. A run rewrites only proposed ones, and deletes proposed
+-- ones it no longer finds; accepted and rejected ones stay as decided.
+CREATE TABLE IF NOT EXISTS place_suggestions (
+    id              TEXT PRIMARY KEY,              -- place_suggestion_000001
+    seq             INTEGER NOT NULL UNIQUE,
+    place_id        TEXT NOT NULL REFERENCES places(id),
+    source          TEXT NOT NULL,                 -- vocabulary.go PlaceSuggestionSources
+    source_ref      TEXT NOT NULL,                 -- node/123, way/456, calendar:node/789
+    name            TEXT NOT NULL DEFAULT '',
+    address         TEXT NOT NULL DEFAULT '',
+    kind            TEXT NOT NULL DEFAULT '',      -- '' leaves the place's kind alone
+    distance_meters REAL NOT NULL DEFAULT 0,
+    reason          TEXT NOT NULL DEFAULT '',
+    evidence        TEXT NOT NULL DEFAULT '{}',    -- PlaceSuggestionEvidence as JSON
+    status          TEXT NOT NULL,                 -- proposed | accepted | rejected
+    proposed_by     TEXT NOT NULL,
+    decided_by      TEXT NOT NULL DEFAULT '',
+    decided_at      INTEGER NOT NULL DEFAULT 0,
+    decision_note   TEXT NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    deleted_at      INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_place_suggestions_identity ON place_suggestions(place_id, source, source_ref);
+CREATE INDEX IF NOT EXISTS idx_place_suggestions_status ON place_suggestions(status, deleted_at);

@@ -145,3 +145,35 @@ func CalendarMatchingSettingDefinitions() []servicesettings.Definition {
 func NewCalendarMatchingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New(SetByCalendarMatching, nil, CalendarMatchingSettingDefinitions(), environment)
 }
+
+// SettingOpenStreetMapExtracts is the key of location-suggest-place-names'
+// extracts setting.
+const SettingOpenStreetMapExtracts = "openstreetmap_extracts"
+
+// DefaultOpenStreetMapExtractDirectory is where the suggester looks for
+// extracts when the environment names none: every .osm.pbf file in it.
+func DefaultOpenStreetMapExtractDirectory() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".cache", "osm")
+}
+
+// PlaceNameSuggestingSettingDefinitions declares every environment variable
+// location-suggest-place-names reads. The extracts are files on disk
+// (Geofabrik's regional .osm.pbf downloads): nothing about a place is ever
+// sent to an online service. dash is read for the calendar events whose
+// addresses are matched against the extracts.
+func PlaceNameSuggestingSettingDefinitions() []servicesettings.Definition {
+	calendar := CalendarMatchingSettingDefinitions()
+	return append(calendar, servicesettings.Definition{Key: SettingOpenStreetMapExtracts, EnvironmentVariable: "LOCATION_STORE_OSM_EXTRACTS",
+		Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeStringList, Default: DefaultOpenStreetMapExtractDirectory(),
+		Description: "OpenStreetMap extracts (.osm.pbf) to read, comma-separated: files, or directories whose every .osm.pbf is read. One per region, so a second state is one more file."})
+}
+
+// NewPlaceNameSuggestingSettingsRegistry reads location-suggest-place-names'
+// settings. It owns no prefix: LOCATION_STORE_ belongs to the service.
+func NewPlaceNameSuggestingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New(SetByPlaceNameSuggesting, nil, PlaceNameSuggestingSettingDefinitions(), environment)
+}

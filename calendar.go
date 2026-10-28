@@ -73,7 +73,7 @@ const (
 	unlinkedLocationNotPlaced   = "location_names_no_known_place_or_town"
 	unlinkedRoutineTownOnly     = "routine_not_at_one_place"
 	unlinkedTownNotVisited      = "town_named_not_visited"
-	unlinkedRoutineNoLocation   = "routine_without_location"
+	unlinkedRoutineNoLocation   = "routine_without_location_not_at_its_spot"
 	unlinkedReadOnlyNoLocation  = "no_location_on_calendar_user_only_reads"
 	unlinkedNoLocationNoJourney = "no_location_no_journey"
 )
@@ -384,6 +384,11 @@ type calendarEvent struct {
 	// when matchSeries found one; seriesReason says why.
 	seriesVisit  *Visit
 	seriesReason string
+	// unlocatedSeriesVisit is the visit at the spot its recurring series
+	// with no location is held, when matchUnlocatedSeries found one.
+	unlocatedSeriesVisit      *Visit
+	unlocatedSeriesReason     string
+	unlocatedSeriesConfidence float64
 }
 
 func (event *calendarEvent) recurring() bool { return event.event.RecurringEventID != "" }
@@ -428,11 +433,13 @@ func (s *Store) MatchCalendar(request CalendarMatchRequest) (*CalendarMatching, 
 		return nil, err
 	}
 	matcher.matchSeries(events)
+	unlocated := matcher.matchUnlocatedSeries(events, request.From, request.To)
 	for _, event := range events {
 		matcher.match(event)
 	}
 	matching := &CalendarMatching{DryRun: request.DryRun, From: request.From, To: request.To, EventsRead: len(events),
-		LinksByRule: map[string]int{}, Unlinked: matcher.unlinked, Actions: map[string]int{}, Links: []PlannedCalendarEventLink{}, Notes: []string{}}
+		LinksByRule: map[string]int{}, Unlinked: matcher.unlinked, Actions: map[string]int{}, Links: []PlannedCalendarEventLink{},
+		SeriesPlaces: []CalendarSeriesPlace{}, Notes: []string{}}
 	for _, link := range matcher.found {
 		matching.LinksByRule[link.Rule]++
 	}
@@ -441,10 +448,19 @@ func (s *Store) MatchCalendar(request CalendarMatchRequest) (*CalendarMatching, 
 		calendarIDs = append(calendarIDs, calendar.Calendar.ID)
 	}
 	err = s.inTransaction(func(tx *sql.Tx) error {
-		return settleCalendarLinks(tx, matching, matcher.found, calendarIDs, request)
+		if err := settleCalendarLinks(tx, matching, matcher.found, calendarIDs, request); err != nil {
+			return err
+		}
+		if request.DryRun {
+			return nil
+		}
+		return saveSeriesPlaces(tx, unlocated, now())
 	})
 	if err != nil {
 		return nil, err
+	}
+	for _, series := range unlocated {
+		matching.SeriesPlaces = append(matching.SeriesPlaces, series.found)
 	}
 	if len(matcher.homes) == 0 {
 		matching.Notes = append(matching.Notes, "no home periods: no visit counts as home, so a routine at home could match by town; run location-group-journeys first")
@@ -1024,13 +1040,19 @@ func (m *calendarMatcher) matchLocation(event *calendarEvent) {
 		fmt.Sprintf("location names the town %s; this journey was in that town while the event ran", event.townName)))
 }
 
-// matchNoLocation links a single event with no location, on a calendar the
-// user writes, to the journey it falls in: time alone, so the weakest rule.
-// A recurring event never links this way: a routine says nothing about
-// where the user was.
+// matchNoLocation links a time of a recurring series with no location to
+// the visit at the spot the series is held, when matchUnlocatedSeries found
+// one and the user was there; and a single event with no location, on a
+// calendar the user writes, to the journey it falls in: time alone, so the
+// weakest rule. A routine never links by time alone.
 func (m *calendarMatcher) matchNoLocation(event *calendarEvent) {
 	if event.recurring() {
-		m.unlinked[unlinkedRoutineNoLocation]++
+		if event.unlocatedSeriesVisit == nil {
+			m.unlinked[unlinkedRoutineNoLocation]++
+			return
+		}
+		m.add(event.link(EntityVisit, event.unlocatedSeriesVisit.ID, CalendarRuleUnlocatedSeriesPlace, event.unlocatedSeriesConfidence,
+			event.unlocatedSeriesReason))
 		return
 	}
 	if !calendarRolesTheUserWrites[event.calendar.AccessRole] {
@@ -1126,4 +1148,25 @@ func settleCalendarLinks(tx *sql.Tx, matching *CalendarMatching, found []Calenda
 		plan(CalendarLinkDelete, existing)
 	}
 	return nil
+}
+
+// GoogleEventTimes reads an event's start and end, as the matching does:
+// epoch seconds, and whether it is an all-day event.
+func GoogleEventTimes(event GoogleCalendarEvent, calendar *GoogleCalendar) (int64, int64, bool, error) {
+	startedAt, allDay, err := eventTime(event.Start, calendar)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("event %s start: %w", event.ID, err)
+	}
+	endedAt, _, err := eventTime(event.End, calendar)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("event %s end: %w", event.ID, err)
+	}
+	return startedAt, endedAt, allDay, nil
+}
+
+// EventLocationNamesSomewhere says an event's location names a place: it is
+// set, is not a video call, and is not only a web address.
+func EventLocationNamesSomewhere(event GoogleCalendarEvent) bool {
+	location := strings.TrimSpace(event.Location)
+	return location != "" && !onlineMeetingPattern.MatchString(location) && !linkOnlyPattern.MatchString(location)
 }
