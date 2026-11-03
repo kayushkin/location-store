@@ -25,7 +25,7 @@ import (
 var typeKeys = []string{"amenity", "shop", "leisure", "tourism", "office", "craft", "healthcare", "sport", "club", "historic", "building"}
 
 // keptKeys are the tags a feature keeps: its type, and what helps a person
-// recognise it.
+// recognize it.
 var keptKeys = append([]string{"name", "brand", "cuisine", "religion", "operator", "website", "opening_hours", "denomination"}, typeKeys...)
 
 // Feature is a named feature.

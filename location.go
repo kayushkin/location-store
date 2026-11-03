@@ -414,7 +414,7 @@ type Locality struct {
 	// TimeZone is the town's IANA time zone (Africa/Ndjamena).
 	TimeZone   string `json:"time_zone"`
 	GeonamesID int64  `json:"geonames_id"`
-	// DistanceMeters is from the coordinate to the town's centre.
+	// DistanceMeters is from the coordinate to the town's center.
 	DistanceMeters float64 `json:"distance_meters"`
 	// DescribedBy says who named it: the command and the data it read.
 	DescribedBy string `json:"described_by"`

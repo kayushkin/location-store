@@ -545,7 +545,7 @@ export interface Locality {
   time_zone: string;
   geonames_id: number /* int64 */;
   /**
-   * DistanceMeters is from the coordinate to the town's centre.
+   * DistanceMeters is from the coordinate to the town's center.
    */
   distance_meters: number /* float64 */;
   /**

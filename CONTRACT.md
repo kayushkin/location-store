@@ -183,7 +183,7 @@ is geocoded by an outside service: an event's location is matched against
 the names and addresses of the store's places, and against GeoNames town
 names on disk. Each event is decided by the first rule that applies:
 
-1. **Not a plan.** Cancelled events, and Google's `birthday`,
+1. **Not a plan.** Canceled events, and Google's `birthday`,
    `workingLocation`, `outOfOffice` and `focusTime` events, link nothing.
 2. **Flights.** A summary `Flight to X (AA 123)` links to the `flying`
    movement overlapping it most (`flight`, 0.9) and to that movement's
@@ -399,7 +399,7 @@ apart by their keys:
 - **Legacy Takeout `Records.json`**: `locations[]` become points
   (`latitudeE7`/`longitudeE7`, `timestamp` or `timestampMs`, `accuracy`).
 - **Legacy Takeout `Semantic Location History/YYYY/YYYY_MONTH.json`**:
-  `placeVisit` becomes a visit at its centre and, with a `placeId`, a place
+  `placeVisit` becomes a visit at its center and, with a `placeId`, a place
   (`name`, `address`, `semanticType`); `activitySegment` becomes a trip whose
   path is `waypointPath`, or `simplifiedRawPath` when there are no waypoints.
   Every `simplifiedRawPath` point is also a point.

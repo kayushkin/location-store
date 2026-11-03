@@ -68,8 +68,8 @@ func calendarEvents() ([]GoogleCalendarEvent, []GoogleCalendarEvent) {
 		timedEvent("talk", "A talk", "Some Venue, 2 Fake Street, Suburbia", 6*24+8.75, 6*24+10),
 		// A video call never links.
 		timedEvent("call", "Standup", "Microsoft Teams Meeting", 7*24+9, 7*24+9.5),
-		// A cancelled event never links.
-		{ID: "cancelled", Status: "cancelled", Summary: "Gone", Location: "Example Hall, Suburbia",
+		// A canceled event never links.
+		{ID: "canceled", Status: "cancelled", Summary: "Gone", Location: "Example Hall, Suburbia",
 			Start: GoogleEventTime{DateTime: at(5*24 + 10)}, End: GoogleEventTime{DateTime: at(5*24 + 11)}},
 		// An all-day birthday never links.
 		{ID: "birthday", Status: "confirmed", EventType: "birthday", Summary: "A birthday",
@@ -149,7 +149,7 @@ func TestCalendarEventsLinkByPlaceFlightJourneyAndNeverByRoutineTime(t *testing.
 	for _, day := range []int{1, 2, 3, 4} {
 		expect(fmt.Sprintf("class_%d", day), EntityVisit, CalendarRuleSeriesPlace)
 	}
-	for _, eventID := range []string{"call", "cancelled", "birthday", "pto", "skating_0", "skating_21", "evening_1", "evening_8"} {
+	for _, eventID := range []string{"call", "canceled", "birthday", "pto", "skating_0", "skating_21", "evening_1", "evening_8"} {
 		if len(byEvent[eventID]) != 0 {
 			t.Errorf("event %s linked to %+v; it must link nothing", eventID, byEvent[eventID])
 		}

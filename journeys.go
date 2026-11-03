@@ -379,7 +379,7 @@ func (g *grouper) findHomes() error {
 	segments[0].from = firstDay
 	segments[len(segments)-1].to = lastDay
 	// Drop every lead shorter than the window, the shortest first, giving
-	// its days to the neighbours.
+	// its days to the neighbors.
 	for len(segments) > 1 {
 		shortest := -1
 		for index, candidate := range segments {
@@ -400,7 +400,7 @@ func (g *grouper) findHomes() error {
 			segments[shortest-1].to = dropped.to
 		}
 		segments = append(segments[:shortest], segments[shortest+1:]...)
-		// Neighbours that are now the same site join.
+		// Neighbors that are now the same site join.
 		for index := 1; index < len(segments); {
 			if segments[index].site == segments[index-1].site {
 				segments[index-1].to = segments[index].to

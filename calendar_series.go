@@ -49,7 +49,7 @@ type unlocatedSeries struct {
 }
 
 // unlocatedSeriesEvent says the event is a time of a recurring series with
-// no location that the rule reads: timed, not cancelled, a plan, not a call.
+// no location that the rule reads: timed, not canceled, a plan, not a call.
 func unlocatedSeriesEvent(event *calendarEvent) bool {
 	return event.recurring() && !event.physical && !event.online && event.flight == nil && !event.allDay &&
 		event.event.Status != "cancelled" && !eventTypesThatAreNotPlans[event.event.EventType]

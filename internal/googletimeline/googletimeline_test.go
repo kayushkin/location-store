@@ -210,7 +210,7 @@ func TestLegacySemanticLocationHistory(t *testing.T) {
 	visit := sink.visits[0]
 	if visit.StartedAt != 1559376000 || visit.EndedAt != 1559383200 || *visit.Latitude != 10.0501 || *visit.Probability != 0.855 ||
 		visit.GooglePlaceID != "example-library" {
-		t.Errorf("visit = %+v: times, the visit's centre, confidence as 0..1", visit)
+		t.Errorf("visit = %+v: times, the visit's center, confidence as 0..1", visit)
 	}
 	if len(sink.trips) != 2 {
 		t.Fatalf("trips = %+v", sink.trips)

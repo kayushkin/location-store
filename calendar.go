@@ -65,7 +65,7 @@ const (
 
 // Why an event linked to nothing, as CalendarMatching.Unlinked counts it.
 const (
-	unlinkedCancelled           = "cancelled"
+	unlinkedCanceled            = "cancelled"
 	unlinkedEventType           = "not_a_plan" // a birthday, working location, out of office or focus time
 	unlinkedOnline              = "online_meeting"
 	unlinkedFlightNotRecorded   = "flight_not_recorded"
@@ -298,7 +298,7 @@ func (s *Store) CreateCalendarEventLink(create CalendarEventLinkCreate) (*Calend
 	return getCalendarEventLinkRow(s.db, id)
 }
 
-// DeleteCalendarEventLink soft-deletes a link, as a person's judgement: a
+// DeleteCalendarEventLink soft-deletes a link, as a person's judgment: a
 // matching run never makes it again. Deleting a deleted link is a no-op.
 func (s *Store) DeleteCalendarEventLink(id string) error {
 	return s.inTransaction(func(tx *sql.Tx) error {
@@ -927,7 +927,7 @@ func (m *calendarMatcher) matchSeries(events []*calendarEvent) {
 func (m *calendarMatcher) match(event *calendarEvent) {
 	switch {
 	case event.event.Status == "cancelled":
-		m.unlinked[unlinkedCancelled]++
+		m.unlinked[unlinkedCanceled]++
 	case eventTypesThatAreNotPlans[event.event.EventType]:
 		m.unlinked[unlinkedEventType]++
 	case event.flight != nil:

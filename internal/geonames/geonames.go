@@ -52,7 +52,7 @@ type Match struct {
 	City
 	Region  string
 	Country string
-	// DistanceMeters is from the coordinate to the town's centre.
+	// DistanceMeters is from the coordinate to the town's center.
 	DistanceMeters float64
 }
 
@@ -265,11 +265,11 @@ func (index *Index) RegionName(city City) string {
 	return index.regions[city.CountryCode+"."+city.RegionCode]
 }
 
-// ReachMeters is how far from its centre a town reaches, as Nearest counts
+// ReachMeters is how far from its center a town reaches, as Nearest counts
 // it.
 func ReachMeters(city City) float64 { return reachMeters(city.Population) }
 
-// reachMeters is how far from its centre a town of this many people reaches,
+// reachMeters is how far from its center a town of this many people reaches,
 // roughly: 15 m per square root of a person, so about 12 km for 650,000
 // people and 500 m for 1,000.
 func reachMeters(population int64) float64 {
