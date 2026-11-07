@@ -57,8 +57,12 @@ const (
 // a journey grouped by location-group-journeys.
 const SourceGenerated = "generated"
 
+// SourcePhonePoints is a visit or movement that POST /phone-points/segment
+// made from the points a phone sent live (PointSourcePhone).
+const SourcePhonePoints = "phone_points"
+
 // RecordSources is every source a place, visit or trip can have.
-var RecordSources = []string{SourceGoogleTimeline, SourceGoogleSemantic, SourceManual, SourceGenerated}
+var RecordSources = []string{SourceGoogleTimeline, SourceGoogleSemantic, SourceManual, SourceGenerated, SourcePhonePoints}
 
 // What a trip is.
 const (
@@ -190,11 +194,14 @@ const (
 	// photo whose file has no GPS, from the photo's Takeout sidecar
 	// (geoData); source_ref is the photo-store photo id.
 	PointSourceGooglePhotosSidecar = "google_photos_sidecar"
+	// PointSourcePhone is a fix a phone sent as it was made, through
+	// POST /points/live.
+	PointSourcePhone = "phone"
 )
 
 // PointSources is every source a point can have.
 var PointSources = []string{PointSourceGoogleRecords, PointSourceGoogleTimelineRaw, PointSourceGoogleTimelinePath,
-	PointSourceGoogleSemanticPath, PointSourcePhoto, PointSourceGoogleActivity, PointSourceGooglePhotosSidecar}
+	PointSourceGoogleSemanticPath, PointSourcePhoto, PointSourceGoogleActivity, PointSourceGooglePhotosSidecar, PointSourcePhone}
 
 // What kind of file an import read.
 const (
@@ -208,11 +215,14 @@ const (
 	// ImportKindGooglePhotosSidecars is Google Takeout photo sidecars whose
 	// geoData places a photo that photo-store has no GPS for.
 	ImportKindGooglePhotosSidecars = "google_photos_sidecars"
+	// ImportKindPhoneLive is the points one phone sent live on one UTC day,
+	// through POST /points/live.
+	ImportKindPhoneLive = "phone_live"
 )
 
 // ImportKinds is every kind an import can have.
 var ImportKinds = []string{ImportKindGoogleTimeline, ImportKindGoogleRecords, ImportKindGoogleSemantic, ImportKindPhotoStore,
-	ImportKindActivityStore, ImportKindGooglePhotosSidecars}
+	ImportKindActivityStore, ImportKindGooglePhotosSidecars, ImportKindPhoneLive}
 
 // Vocabularies is the answer to GET /vocabularies.
 type Vocabularies struct {

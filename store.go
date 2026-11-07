@@ -99,6 +99,7 @@ var addedColumns = []struct {
 	{"imports", "snapshot", "TEXT", nil},
 	{"imports", "snapshot_changes", "TEXT", nil},
 	{"trips", "parent_set_by", "TEXT NOT NULL DEFAULT ''", []string{`UPDATE trips SET parent_set_by = 'hand' WHERE parent_trip_id IS NOT NULL`}},
+	{"imports", "recorded_by", "TEXT NOT NULL DEFAULT ''", nil},
 }
 
 func addColumns(db *sql.DB) error {

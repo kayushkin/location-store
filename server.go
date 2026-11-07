@@ -67,6 +67,8 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 
 	mux.HandleFunc("GET /timeline", h.timeline)
 	mux.HandleFunc("GET /points", h.listPoints)
+	mux.HandleFunc("POST /points/live", h.recordLivePoints)
+	mux.HandleFunc("POST /phone-points/segment", h.segmentPhonePoints)
 
 	mux.HandleFunc("GET /imports", h.listImports)
 	mux.HandleFunc("POST /imports", h.startImport)
@@ -429,6 +431,30 @@ func (h *handler) getHomePeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, period)
+}
+
+func (h *handler) recordLivePoints(w http.ResponseWriter, r *http.Request) {
+	var live LivePoints
+	if !decodeBody(w, r, 4<<20, &live) {
+		return
+	}
+	recorded, err := h.s.RecordLivePoints(live)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, recorded)
+}
+
+func (h *handler) segmentPhonePoints(w http.ResponseWriter, r *http.Request) {
+	var request PhoneSegmentRequest
+	if !decodeBody(w, r, 1<<20, &request) {
+		return
+	}
+	segmentation, err := h.s.SegmentPhonePoints(request)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, segmentation)
 }
 
 func (h *handler) groupJourneys(w http.ResponseWriter, r *http.Request) {

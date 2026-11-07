@@ -144,6 +144,17 @@ func JourneyGroupingSettingDefinitions() []servicesettings.Definition {
 	return []servicesettings.Definition{locationStoreURLDefinition()}
 }
 
+// PhoneSegmentingSettingDefinitions declares every environment variable
+// location-segment-phone-points reads.
+func PhoneSegmentingSettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{locationStoreURLDefinition()}
+}
+
+// NewPhoneSegmentingSettingsRegistry reads location-segment-phone-points' settings.
+func NewPhoneSegmentingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New("location-segment-phone-points", nil, PhoneSegmentingSettingDefinitions(), environment)
+}
+
 // NewJourneyGroupingSettingsRegistry reads location-group-journeys' settings.
 func NewJourneyGroupingSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New("location-group-journeys", nil, JourneyGroupingSettingDefinitions(), environment)

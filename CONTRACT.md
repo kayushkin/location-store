@@ -307,7 +307,8 @@ already named is a 409: a suggestion never renames. `POST
 Raw fixes, possibly millions; no public ids. `timestamp`, `latitude`,
 `longitude`, `accuracy_meters` (nullable), `source` (`point_sources`:
 `google_records`, `google_timeline_raw`, `google_timeline_path`,
-`google_semantic_path`, `photo`, `google_activity`, `google_photos_sidecar`),
+`google_semantic_path`, `photo`, `google_activity`, `google_photos_sidecar`,
+`phone`),
 `source_ref` (a photo id for `photo` and `google_photos_sidecar`, an
 activity-store activity id for `google_activity`, else `""`), `import_id`. A second copy of a fix from the same source is a no-op; a
 point with a `source_ref` replaces an earlier one with the same source and
@@ -317,8 +318,9 @@ point with a `source_ref` replaces an earlier one with the same source and
 
 `id` (`import_000001`), `kind` (`import_kinds`: `google_timeline`,
 `google_records`, `google_semantic`, `photo_store`, `activity_store`,
-`google_photos_sidecars`), `sha256` (of the file;
-unique), `source_machine`, `source_path`, `imported_at`, `finished_at` (0
+`google_photos_sidecars`, `phone_live`), `sha256` (of the file;
+unique), `source_machine`, `source_path`, `recorded_by` (who sent a live
+import's points, as the front door signed it; `""` for a file), `imported_at`, `finished_at` (0
 while sending), `counts` (`points_added`, `points_unchanged`,
 `places_created`, `places_updated`, `visits_created`, `visits_updated`,
 `trips_created`, `trips_updated`, `records_unchanged`).
@@ -374,6 +376,8 @@ A `PATCH` with an unknown key, or `null` on a field that is not a link, is a
 | `POST` | `/place-suggestions/{id}/reject` | `{decided_by, note}`. **409** unless proposed |
 | `GET` | `/timeline` | visits and trips overlapping `?from=&to=`, in start order: `[{kind:"visit"\|"trip", visit, trip}]`. Trips that have children are left out unless `?include_parent_trips=true`. `?source=`; `?limit=` default 500, max 5000 |
 | `GET` | `/points` | earliest first. `?from=` (inclusive) `&to=` (exclusive) on `timestamp`, `?source=`, `?source_ref=`; `?limit=` default 1000, max 10000 |
+| `POST` | `/points/live` | `{device, recorded_by, points:[{timestamp, latitude, longitude, accuracy_meters}]}`, at most 5000 points: fixes a phone sent as it made them (see *Phone points*). Answers `{import_ids, points_added, points_unchanged}` |
+| `POST` | `/phone-points/segment` | `{dry_run, from, to}`, at most 400 days: makes the phone points into visits and movements (see *Phone points*). Answers `{dry_run, from, to, points_read, points_too_rough, places_created, actions:[{action, entity_type, id, started_at, ended_at, place_id, mode, distance_meters, points, note}], action_counts}`; `action` is `create`, `update`, `unchanged`, `delete`, `kept_edited`, `kept_deleted` or `skip_other_source`. A dry run does the work and writes none of it, so the ids it answers are the ones a real run would have made |
 | `GET` | `/imports` | newest first |
 | `POST` | `/imports` | `{kind, sha256, source_machine, source_path, reapply}`: starts an import, or answers the one with that hash. `{import, already_finished}`. `reapply: true` opens a finished import again (its counts and its record of what the file holds start afresh), so the same file can be sent once more |
 | `GET` | `/imports/{id}` | |
@@ -403,6 +407,47 @@ apart by their keys:
   (`name`, `address`, `semanticType`); `activitySegment` becomes a trip whose
   path is `waypointPath`, or `simplifiedRawPath` when there are no waypoints.
   Every `simplifiedRawPath` point is also a point.
+
+### Phone points
+
+A phone sends its fixes through a front door (dash) to `POST /points/live`:
+points with source `phone`, held in one import of kind `phone_live` per
+`device` and UTC day, found again by a hash of the two. `device` is 1 to 100
+letters, digits, dots, dashes or underscores; `recorded_by` is required and
+the front door writes it. A fix is refused when its time is before 2000 or
+more than 10 minutes past the server's clock. Sending a fix again is a no-op,
+so a phone may resend a batch whose answer it lost.
+
+`~/bin/location-segment-phone-points [-days 3] [-dry-run] [-all]` (or
+`POST /phone-points/segment`) makes those points into records, source
+`phone_points`, all decided in `phone_points.go`:
+
+1. Fixes less accurate than 250 m are left out and counted.
+2. A **stay** is a run of fixes within 150 m of the run's center, with no
+   silence longer than 12 hours (a phone lying still overnight reports
+   seldom, and a night must stay one visit), lasting 10 minutes or more. Two
+   stays in a row within 150 m of each other are one.
+3. Each stay is a **visit** at the place nearest its center within the
+   place's radius (at least 100 m); with none, a new unnamed place there,
+   kind `other`, source `phone_points`, for the naming suggestions to find.
+4. Between two stays is a **movement** (a trip of kind `movement`) whose path
+   is the fixes between them. Its mode comes from speed alone: a flight is
+   100 km or more as the crow flies at 200 km/h or faster; 25 km/h or faster
+   along the path is driving; 7 km/h or slower walking; anything else
+   `unknown`.
+5. **Re-running** matches each segment to the stored record of the same
+   kind it overlaps most, and updates its times, ends, place, mode and path
+   (clearing a locality whose coordinate moved). A stored record no segment
+   matches is soft-deleted. A record someone **edited** (a description,
+   tags, or a revision with reason `update`, `attach` or `restore`) or
+   **deleted** is left as it is, and no segment is made over it. No segment
+   is made where a visit or movement from any other source already is.
+   Every change is copied to `revisions` (reason `phone_points`).
+6. A run starts reading at the start of a stored phone visit or movement
+   that runs across `from`, so it never cuts a stay in two.
+
+Then run `location-name-localities` → `location-group-journeys` →
+`location-match-calendar`, which read these records like an export's.
 
 ### Snapshots
 

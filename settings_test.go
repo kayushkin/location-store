@@ -36,7 +36,7 @@ func TestEveryEnvironmentVariableTheServiceReadsIsDeclared(t *testing.T) {
 	declared := map[string]bool{}
 	for _, definition := range append(append(append(append(SettingDefinitions(), ImportGoogleSettingDefinitions()...), ImportPhotosSettingDefinitions()...),
 		LocalityNamingSettingDefinitions()...), append(append(append(append(JourneyGroupingSettingDefinitions(), CalendarMatchingSettingDefinitions()...), PlaceNameSuggestingSettingDefinitions()...),
-		ImportActivitySettingDefinitions()...), ImportPhotoSidecarsSettingDefinitions()...)...) {
+		ImportActivitySettingDefinitions()...), append(ImportPhotoSidecarsSettingDefinitions(), PhoneSegmentingSettingDefinitions()...)...)...) {
 		declared[definition.EnvironmentVariable] = true
 	}
 	filesRead := 0

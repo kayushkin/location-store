@@ -188,7 +188,10 @@ type Import struct {
 	Sha256        string `json:"sha256"`
 	SourceMachine string `json:"source_machine"`
 	SourcePath    string `json:"source_path"`
-	ImportedAt    int64  `json:"imported_at"`
+	// RecordedBy is who sent a live import's points (POST /points/live), as
+	// the front door signed it; "" for an import of a file.
+	RecordedBy string `json:"recorded_by"`
+	ImportedAt int64  `json:"imported_at"`
 	// FinishedAt is 0 while the import is still sending.
 	FinishedAt int64        `json:"finished_at"`
 	Counts     ImportCounts `json:"counts"`
@@ -904,4 +907,67 @@ type PlaceSuggesting struct {
 	// Actions counts the suggestions by what the run did: create, update,
 	// unchanged, kept_decided (accepted or rejected before), delete.
 	Actions map[string]int `json:"actions"`
+}
+
+// LivePoints is the body of POST /points/live: fixes one phone made, sent as
+// it made them. RecordedBy is who sent them, written by the front door.
+type LivePoints struct {
+	Device     string      `json:"device"`
+	RecordedBy string      `json:"recorded_by"`
+	Points     []LivePoint `json:"points"`
+}
+
+// LivePoint is one fix: epoch seconds, and accuracy in meters when the phone
+// gave one.
+type LivePoint struct {
+	Timestamp      int64    `json:"timestamp"`
+	Latitude       float64  `json:"latitude"`
+	Longitude      float64  `json:"longitude"`
+	AccuracyMeters *float64 `json:"accuracy_meters"`
+}
+
+// LivePointsRecorded answers POST /points/live: the imports (one per device
+// and UTC day) the points went into, and what was new.
+type LivePointsRecorded struct {
+	ImportIDs       []string `json:"import_ids"`
+	PointsAdded     int      `json:"points_added"`
+	PointsUnchanged int      `json:"points_unchanged"`
+}
+
+// PhoneSegmentRequest is the body of POST /phone-points/segment: the span of
+// phone points to make into visits and movements. A dry run writes nothing.
+type PhoneSegmentRequest struct {
+	DryRun bool  `json:"dry_run"`
+	From   int64 `json:"from"`
+	To     int64 `json:"to"`
+}
+
+// PhoneSegmentAction is what a segmenting run did to one visit or movement.
+// Action is create, update, unchanged, delete, kept_edited, kept_deleted or
+// skip_other_source.
+type PhoneSegmentAction struct {
+	Action         string   `json:"action"`
+	EntityType     string   `json:"entity_type"`
+	ID             string   `json:"id"`
+	StartedAt      int64    `json:"started_at"`
+	EndedAt        int64    `json:"ended_at"`
+	PlaceID        *string  `json:"place_id,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	DistanceMeters *float64 `json:"distance_meters,omitempty"`
+	Points         int      `json:"points"`
+	Note           string   `json:"note,omitempty"`
+}
+
+// PhoneSegmentation answers POST /phone-points/segment. From is where the run
+// began reading, which is earlier than asked when a stored phone visit or
+// movement runs across the start.
+type PhoneSegmentation struct {
+	DryRun         bool                 `json:"dry_run"`
+	From           int64                `json:"from"`
+	To             int64                `json:"to"`
+	PointsRead     int                  `json:"points_read"`
+	PointsTooRough int                  `json:"points_too_rough"`
+	PlacesCreated  []string             `json:"places_created"`
+	Actions        []PhoneSegmentAction `json:"actions"`
+	ActionCounts   map[string]int       `json:"action_counts"`
 }

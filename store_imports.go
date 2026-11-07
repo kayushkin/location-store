@@ -11,7 +11,7 @@ import (
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-const importColumns = `id, kind, sha256, source_machine, source_path, imported_at, finished_at, counts, snapshot, snapshot_changes, seq`
+const importColumns = `id, kind, sha256, source_machine, source_path, imported_at, finished_at, counts, snapshot, snapshot_changes, recorded_by, seq`
 
 // importRow is an import with its seq, which orders snapshots that tie.
 type importRow struct {
@@ -24,7 +24,7 @@ func scanImportRow(scan func(...any) error) (*importRow, error) {
 	var counts string
 	var snapshot, changes sql.NullString
 	if err := scan(&record.ID, &record.Kind, &record.Sha256, &record.SourceMachine, &record.SourcePath,
-		&record.ImportedAt, &record.FinishedAt, &counts, &snapshot, &changes, &record.seq); err != nil {
+		&record.ImportedAt, &record.FinishedAt, &counts, &snapshot, &changes, &record.RecordedBy, &record.seq); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(counts), &record.Counts); err != nil {
