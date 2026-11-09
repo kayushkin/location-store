@@ -66,6 +66,7 @@ set, and copies the record to `revisions` first (reason `locality`).
 | `source`, `import_id` | `google_timeline`, `google_semantic`, `manual` or `generated`; the import that created it |
 | `locality` | the town; see *Localities* |
 | `deleted_at` | 0 = live |
+| `merged_into_place_id` | the place this one was merged into, null if never merged; an import that names this place by `google_place_id` lands on that one. A restore clears it |
 
 ### `visits`
 
@@ -342,6 +343,7 @@ A `PATCH` with an unknown key, or `null` on a field that is not a link, is a
 | `POST` | `/places` | `{name, latitude, longitude, radius_meters, address, kind, description, described_by, tags}`; name, latitude, longitude, kind required. **201** |
 | `GET` | `/places/{id}` | deleted is 404 unless `?include_deleted=true` |
 | `PATCH` | `/places/{id}` | any of `name`, `latitude`, `longitude`, `radius_meters`, `address`, `kind`, `description`, `described_by`, `tags` |
+| `POST` | `/places/{id}/merge` | `{into}`: two records of one real place. Every visit, trip start and end, calendar link to the place (a link whose event already links to `into` is soft-deleted, `deleted_by` `merge`), recurring-series spot and home period that named `{id}` names `into`; a place merged into `{id}` earlier points at `into`; then `{id}` is soft-deleted with `merged_into_place_id`. Each moved record is first copied to `revisions` with reason `merge`, which is not a hand edit, so imports and phone segmenting still treat it as theirs. `into`'s own fields are untouched. Answers `{place, merged_place_id, visits_moved, trip_starts_moved, trip_ends_moved, calendar_links_moved, calendar_links_duplicate, calendar_series_moved, home_periods_moved, places_repointed}`. **409** if either is deleted |
 | `GET` | `/visits` | earliest first. `?from=&to=`, `?place_id=`, `?source=`, `?tag=` |
 | `POST` | `/visits` | `{place_id, started_at, ended_at, latitude, longitude, description, described_by, tags}`; a place or a coordinate required. **201** |
 | `GET` | `/visits/{id}` | with `calendar_event_links`, the live links to it (lists leave them out) |

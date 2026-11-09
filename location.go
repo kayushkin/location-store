@@ -32,6 +32,30 @@ type Place struct {
 	CreatedAt int64     `json:"created_at"`
 	UpdatedAt int64     `json:"updated_at"`
 	DeletedAt int64     `json:"deleted_at"`
+	// MergedIntoPlaceID is the place this one was merged into (POST
+	// /places/{id}/merge), which then holds everything that pointed here;
+	// null for a place never merged.
+	MergedIntoPlaceID *string `json:"merged_into_place_id"`
+}
+
+// PlaceMergeRequest is the body of POST /places/{id}/merge.
+type PlaceMergeRequest struct {
+	Into string `json:"into"`
+}
+
+// PlaceMerge answers POST /places/{id}/merge: the place kept, and how many
+// records were moved from the merged place to it.
+type PlaceMerge struct {
+	Place                  Place  `json:"place"`
+	MergedPlaceID          string `json:"merged_place_id"`
+	VisitsMoved            int    `json:"visits_moved"`
+	TripStartsMoved        int    `json:"trip_starts_moved"`
+	TripEndsMoved          int    `json:"trip_ends_moved"`
+	CalendarLinksMoved     int    `json:"calendar_links_moved"`
+	CalendarLinksDuplicate int    `json:"calendar_links_duplicate"`
+	CalendarSeriesMoved    int    `json:"calendar_series_moved"`
+	HomePeriodsMoved       int    `json:"home_periods_moved"`
+	PlacesRepointed        int    `json:"places_repointed"`
 }
 
 // Visit is being somewhere from StartedAt to EndedAt.

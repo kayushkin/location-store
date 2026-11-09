@@ -269,12 +269,18 @@ func placeIDByGoogleID(tx *sql.Tx, googlePlaceID string) (*string, error) {
 		return nil, nil
 	}
 	var id string
-	err := tx.QueryRow(`SELECT id FROM places WHERE google_place_id = ?`, googlePlaceID).Scan(&id)
+	var mergedInto sql.NullString
+	err := tx.QueryRow(`SELECT id, merged_into_place_id FROM places WHERE google_place_id = ?`, googlePlaceID).Scan(&id, &mergedInto)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	// A place merged into another is found as the one it went into, so a
+	// later export's visits there land on the place kept.
+	if mergedInto.Valid {
+		return &mergedInto.String, nil
 	}
 	return &id, nil
 }

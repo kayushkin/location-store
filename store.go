@@ -100,6 +100,7 @@ var addedColumns = []struct {
 	{"imports", "snapshot_changes", "TEXT", nil},
 	{"trips", "parent_set_by", "TEXT NOT NULL DEFAULT ''", []string{`UPDATE trips SET parent_set_by = 'hand' WHERE parent_trip_id IS NOT NULL`}},
 	{"imports", "recorded_by", "TEXT NOT NULL DEFAULT ''", nil},
+	{"places", "merged_into_place_id", "TEXT REFERENCES places(id)", nil},
 }
 
 func addColumns(db *sql.DB) error {

@@ -58,18 +58,19 @@ func describedByRequired(description, describedBy string) error {
 // ---- places ----
 
 const placeColumns = `id, name, latitude, longitude, radius_meters, address, kind, google_place_id, description,
-	described_by, tags, source, import_id, locality, created_at, updated_at, deleted_at`
+	described_by, tags, source, import_id, locality, created_at, updated_at, deleted_at, merged_into_place_id`
 
 func scanPlace(scan func(...any) error) (*Place, error) {
 	var place Place
-	var googlePlaceID, importID, locality sql.NullString
+	var googlePlaceID, importID, locality, mergedInto sql.NullString
 	var tags string
 	if err := scan(&place.ID, &place.Name, &place.Latitude, &place.Longitude, &place.RadiusMeters, &place.Address, &place.Kind,
 		&googlePlaceID, &place.Description, &place.DescribedBy, &tags, &place.Source, &importID, &locality,
-		&place.CreatedAt, &place.UpdatedAt, &place.DeletedAt); err != nil {
+		&place.CreatedAt, &place.UpdatedAt, &place.DeletedAt, &mergedInto); err != nil {
 		return nil, err
 	}
 	place.GooglePlaceID, place.ImportID = stringPointer(googlePlaceID), stringPointer(importID)
+	place.MergedIntoPlaceID = stringPointer(mergedInto)
 	var err error
 	if place.Locality, err = decodeLocality(locality, "place "+place.ID); err != nil {
 		return nil, err
@@ -871,7 +872,7 @@ func (s *Store) Restore(entityType, id string) error {
 			return err
 		}
 		if entityType == EntityPlace {
-			_, err = tx.Exec(`UPDATE places SET deleted_at=0, updated_at=? WHERE id=?`, at, id)
+			_, err = tx.Exec(`UPDATE places SET deleted_at=0, merged_into_place_id=NULL, updated_at=? WHERE id=?`, at, id)
 			return err
 		}
 		// Brought back by hand, a record a newer export set aside stays: the

@@ -24,6 +24,7 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	mux.HandleFunc("POST /places", h.createPlace)
 	mux.HandleFunc("GET /places/{id}", h.getPlace)
 	mux.HandleFunc("PATCH /places/{id}", h.patchPlace)
+	mux.HandleFunc("POST /places/{id}/merge", h.mergePlace)
 
 	mux.HandleFunc("GET /visits", h.listVisits)
 	mux.HandleFunc("POST /visits", h.createVisit)
@@ -260,6 +261,18 @@ func (h *handler) patchPlace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, place)
+}
+
+func (h *handler) mergePlace(w http.ResponseWriter, r *http.Request) {
+	var request PlaceMergeRequest
+	if !decodeBody(w, r, 1<<16, &request) {
+		return
+	}
+	merge, err := h.s.MergePlace(r.PathValue("id"), request)
+	if respondError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, merge)
 }
 
 // ---- visits ----
