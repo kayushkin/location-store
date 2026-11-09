@@ -430,8 +430,12 @@ so a phone may resend a batch whose answer it lost.
    seldom, and a night must stay one visit), lasting 10 minutes or more. Two
    stays in a row within 150 m of each other are one.
 3. Each stay is a **visit** at the place nearest its center within the
-   place's radius (at least 100 m); with none, a new unnamed place there,
-   kind `other`, source `phone_points`, for the naming suggestions to find.
+   place's radius (at least 100 m; the oldest of equally near ones); with
+   none, a new unnamed place there, kind `other`, source `phone_points`, for
+   the naming suggestions to find. A visit already stored **keeps its
+   place** while the place is live and the center within its reach, so a
+   merge (`POST /places/{id}/merge`) or a near duplicate never moves it. A
+   movement starts and ends at its two stays' places.
 4. Between two stays is a **movement** (a trip of kind `movement`) whose path
    is the fixes between them. Its mode comes from speed alone: a flight is
    100 km or more as the crow flies at 200 km/h or faster; 25 km/h or faster

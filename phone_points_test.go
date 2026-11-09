@@ -177,3 +177,48 @@ func TestPhoneMovementModes(t *testing.T) {
 		}
 	}
 }
+
+func TestSegmentingKeepsAVisitsPlaceWhenANearerDuplicateAppears(t *testing.T) {
+	s := newTestService(t)
+	s.must(http.MethodPost, "/points/live", LivePoints{Device: "example-phone", RecordedBy: "someone", Points: phoneDay()}, nil, http.StatusOK)
+	s.segment(false)
+	var visits []Visit
+	s.must(http.MethodGet, "/visits", nil, &visits, http.StatusOK)
+	firstPlace := *visits[0].PlaceID
+	// The first place sits 44 m off the stay's center; a second record of the
+	// same spot sits on it.
+	s.must(http.MethodPatch, "/places/"+firstPlace, map[string]any{"latitude": 10.0005}, nil, http.StatusOK)
+	s.must(http.MethodPost, "/places", map[string]any{"name": "duplicate", "latitude": 10.0001, "longitude": 20.0, "kind": "other"}, nil, http.StatusCreated)
+	run := s.segment(false)
+	if run.ActionCounts["unchanged"] != 3 || len(run.ActionCounts) != 1 {
+		t.Fatalf("run = %+v, want everything unchanged", run.ActionCounts)
+	}
+	s.must(http.MethodGet, "/visits", nil, &visits, http.StatusOK)
+	if *visits[0].PlaceID != firstPlace {
+		t.Fatalf("visit moved to %s from %s", *visits[0].PlaceID, firstPlace)
+	}
+	var trips []Trip
+	s.must(http.MethodGet, "/trips?kind=movement", nil, &trips, http.StatusOK)
+	if *trips[0].StartPlaceID != firstPlace || *trips[0].EndPlaceID != *visits[1].PlaceID {
+		t.Fatalf("trip ends %s → %s, want the visits' places %s → %s", *trips[0].StartPlaceID, *trips[0].EndPlaceID, firstPlace, *visits[1].PlaceID)
+	}
+}
+
+func TestSegmentingKeepsAVisitOnThePlaceItWasMergedInto(t *testing.T) {
+	s := newTestService(t)
+	s.must(http.MethodPost, "/points/live", LivePoints{Device: "example-phone", RecordedBy: "someone", Points: phoneDay()}, nil, http.StatusOK)
+	s.segment(false)
+	var visits []Visit
+	s.must(http.MethodGet, "/visits", nil, &visits, http.StatusOK)
+	var kept Place
+	s.must(http.MethodPost, "/places", map[string]any{"name": "home", "latitude": 10.0004, "longitude": 20.0, "kind": "home"}, &kept, http.StatusCreated)
+	s.must(http.MethodPost, "/places/"+*visits[0].PlaceID+"/merge", PlaceMergeRequest{Into: kept.ID}, nil, http.StatusOK)
+	run := s.segment(false)
+	if run.ActionCounts["unchanged"] != 3 {
+		t.Fatalf("run after a merge = %+v, want everything unchanged", run.ActionCounts)
+	}
+	s.must(http.MethodGet, "/visits", nil, &visits, http.StatusOK)
+	if *visits[0].PlaceID != kept.ID {
+		t.Fatalf("visit is at %s, want the kept place %s", *visits[0].PlaceID, kept.ID)
+	}
+}

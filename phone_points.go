@@ -310,15 +310,16 @@ func (s *Store) SegmentPhonePoints(request PhoneSegmentRequest) (*PhoneSegmentat
 		if err != nil {
 			return err
 		}
-		segmenter := phoneSegmenter{tx: tx, at: at, fixes: fixes, result: result}
-		for index, stay := range stays {
+		segmenter := phoneSegmenter{stayPlaces: map[int]string{}, tx: tx, at: at, fixes: fixes, result: result}
+		// Visits first, so each movement starts and ends at its stays' places.
+		for _, stay := range stays {
 			if err := segmenter.visit(stay, storedVisits); err != nil {
 				return err
 			}
-			if index+1 < len(stays) {
-				if err := segmenter.movement(phoneMovementBetween(fixes, stay, stays[index+1]), storedTrips); err != nil {
-					return err
-				}
+		}
+		for index := 0; index+1 < len(stays); index++ {
+			if err := segmenter.movement(phoneMovementBetween(fixes, stays[index], stays[index+1]), storedTrips); err != nil {
+				return err
 			}
 		}
 		if err := segmenter.deleteUnmatched(EntityVisit, storedVisits); err != nil {
@@ -409,10 +410,13 @@ func readStoredPhoneRecords(tx *sql.Tx, table, extraWhere string, from, to int64
 }
 
 type phoneSegmenter struct {
-	tx     *sql.Tx
-	at     int64
-	fixes  []phoneFix
-	result *PhoneSegmentation
+	// stayPlaces is the place each stay's visit is at, by the stay's first
+	// fix, so the movements between stays start and end at the same places.
+	stayPlaces map[int]string
+	tx         *sql.Tx
+	at         int64
+	fixes      []phoneFix
+	result     *PhoneSegmentation
 }
 
 func (segmenter *phoneSegmenter) record(action PhoneSegmentAction) {
@@ -461,15 +465,32 @@ func (segmenter *phoneSegmenter) otherSourceOverlaps(table, extraWhere string, s
 	return id, err
 }
 
-// placeFor is the live place nearest the stay's center within its radius
-// (at least phonePlaceMatchMeters), or a new unnamed one there.
-func (segmenter *phoneSegmenter) placeFor(stay phoneStay) (string, error) {
+// placeFor is the place a stay is at. A record that already names a place
+// keeps it while the place is live and the stay's center within its reach
+// (its radius, at least phonePlaceMatchMeters), so a merge, or a near
+// duplicate a little nearer, never moves it. Otherwise it is the live place
+// nearest the center within reach (the oldest of equally near ones), or a new
+// unnamed one there.
+func (segmenter *phoneSegmenter) placeFor(stay phoneStay, current *string) (string, error) {
+	if current != nil {
+		var latitude, longitude, radius float64
+		err := segmenter.tx.QueryRow(`SELECT latitude, longitude, radius_meters FROM places WHERE id = ? AND deleted_at = 0`, *current).
+			Scan(&latitude, &longitude, &radius)
+		switch {
+		case err == nil:
+			if geonames.DistanceMeters(stay.latitude, stay.longitude, latitude, longitude) <= math.Max(radius, phonePlaceMatchMeters) {
+				return *current, nil
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			return "", err
+		}
+	}
 	// A degree of latitude is about 111 km; the box is wide enough for any
 	// radius a source gives, and the distance decides.
 	const boxDegrees = 0.05
 	longitudeBox := boxDegrees / math.Max(math.Cos(stay.latitude*math.Pi/180), 0.01)
 	rows, err := segmenter.tx.Query(`SELECT id, latitude, longitude, radius_meters FROM places WHERE deleted_at = 0
-		AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?`,
+		AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? ORDER BY seq`,
 		stay.latitude-boxDegrees, stay.latitude+boxDegrees, stay.longitude-longitudeBox, stay.longitude+longitudeBox)
 	if err != nil {
 		return "", err
@@ -507,6 +528,16 @@ func (segmenter *phoneSegmenter) placeFor(stay phoneStay) (string, error) {
 	return id, nil
 }
 
+// endPlace is the place a movement starts or ends at: its stay's visit's
+// place, or for a stay with no visit of this run's (kept or another
+// source's), the place found for the stay.
+func (segmenter *phoneSegmenter) endPlace(stay phoneStay, current *string) (string, error) {
+	if placeID, found := segmenter.stayPlaces[stay.first]; found {
+		return placeID, nil
+	}
+	return segmenter.placeFor(stay, current)
+}
+
 func phoneSourceRef(startedAt, endedAt int64) string { return fmt.Sprintf("%d-%d", startedAt, endedAt) }
 
 func (segmenter *phoneSegmenter) visit(stay phoneStay, stored []*storedPhoneRecord) error {
@@ -530,10 +561,21 @@ func (segmenter *phoneSegmenter) visit(stay phoneStay, stored []*storedPhoneReco
 		segmenter.record(action)
 		return nil
 	}
-	placeID, err := segmenter.placeFor(stay)
+	var current *Visit
+	if own != nil {
+		if current, err = getVisitRow(segmenter.tx, own.id); err != nil {
+			return err
+		}
+	}
+	var currentPlace *string
+	if current != nil {
+		currentPlace = current.PlaceID
+	}
+	placeID, err := segmenter.placeFor(stay, currentPlace)
 	if err != nil {
 		return err
 	}
+	segmenter.stayPlaces[stay.first] = placeID
 	action.PlaceID = &placeID
 	if own == nil {
 		id, seq, err := nextID(segmenter.tx, "visits", "visit")
@@ -550,10 +592,6 @@ func (segmenter *phoneSegmenter) visit(stay phoneStay, stored []*storedPhoneReco
 		return nil
 	}
 	action.ID = own.id
-	current, err := getVisitRow(segmenter.tx, own.id)
-	if err != nil {
-		return err
-	}
 	if current.StartedAt == startedAt && current.EndedAt == endedAt && sameString(current.PlaceID, &placeID) &&
 		sameFloat(current.Latitude, &stay.latitude) && sameFloat(current.Longitude, &stay.longitude) {
 		action.Action = "unchanged"
@@ -602,11 +640,19 @@ func (segmenter *phoneSegmenter) movement(movement phoneMovement, stored []*stor
 		return nil
 	}
 	from, to := movement.from, movement.to
-	startPlace, err := segmenter.placeFor(from)
+	var current *Trip
+	var currentStart, currentEnd *string
+	if own != nil {
+		if current, err = getTripRow(segmenter.tx, own.id); err != nil {
+			return err
+		}
+		currentStart, currentEnd = current.StartPlaceID, current.EndPlaceID
+	}
+	startPlace, err := segmenter.endPlace(from, currentStart)
 	if err != nil {
 		return err
 	}
-	endPlace, err := segmenter.placeFor(to)
+	endPlace, err := segmenter.endPlace(to, currentEnd)
 	if err != nil {
 		return err
 	}
@@ -630,10 +676,6 @@ func (segmenter *phoneSegmenter) movement(movement phoneMovement, stored []*stor
 		return nil
 	}
 	action.ID = own.id
-	current, err := getTripRow(segmenter.tx, own.id)
-	if err != nil {
-		return err
-	}
 	path, err := readPath(segmenter.tx, own.id)
 	if err != nil {
 		return err
